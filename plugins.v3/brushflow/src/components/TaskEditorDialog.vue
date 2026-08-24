@@ -479,6 +479,29 @@ async function saveTask() {
                     inset
                   />
                 </div>
+                <VSwitch
+                  v-model="localTask.invalid_seed_cleanup_enabled"
+                  label="自动清理无效做种"
+                  color="error"
+                  hide-details
+                  inset
+                />
+                <VAlert v-if="localTask.invalid_seed_cleanup_enabled" type="info" variant="tonal" density="compact">
+                  参考“清理无效做种”插件：只认 Tracker 明确返回未注册、已封禁或不存在，并确认同一 Tracker 在其它种子上仍正常；连续确认后仅移除 qB 任务，不删除下载数据。
+                </VAlert>
+                <VRow v-if="localTask.invalid_seed_cleanup_enabled">
+                  <VCol cols="12" md="6">
+                    <VTextField
+                      v-model.number="localTask.invalid_seed_confirmations"
+                      type="number"
+                      min="1"
+                      max="5"
+                      label="无效做种连续确认次数"
+                      hint="默认 2 次，避免站点临时故障误清理"
+                      persistent-hint
+                    />
+                  </VCol>
+                </VRow>
               </section>
               <section class="editor-section">
                 <header class="editor-section__head">

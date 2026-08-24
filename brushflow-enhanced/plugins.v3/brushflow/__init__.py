@@ -41,8 +41,10 @@ from .decision import (
     SmartPolicy,
     TorrentObservation,
     adaptive_selection_policy,
+    detect_invalid_seed,
     rank_selection_candidates,
     select_deletions,
+    tracker_endpoint_domain,
 )
 
 
@@ -89,6 +91,8 @@ TASK_CONFIG_FIELDS = (
     "smart_ratio_weight",
     "smart_cold_inactive_minutes",
     "smart_protect_active_demand",
+    "invalid_seed_cleanup_enabled",
+    "invalid_seed_confirmations",
     "smart_score_threshold",
     "smart_score_margin",
     "smart_max_delete_per_run",
@@ -232,6 +236,16 @@ class BrushTaskConfig:
         self.smart_protect_active_demand = bool(
             config.get("smart_protect_active_demand", True)
         )
+        self.invalid_seed_cleanup_enabled = bool(
+            config.get("invalid_seed_cleanup_enabled", False)
+        )
+        invalid_seed_confirmations = self._parse_number(
+            config.get("invalid_seed_confirmations", 2)
+        )
+        self.invalid_seed_confirmations = max(
+            1,
+            min(int(invalid_seed_confirmations or 2), 5),
+        )
         smart_score_threshold = self._parse_number(config.get("smart_score_threshold", 40))
         self.smart_score_threshold = 40 if smart_score_threshold is None else smart_score_threshold
         self.smart_score_margin = self._parse_number(config.get("smart_score_margin", 0)) or 0
@@ -315,9 +329,9 @@ class BrushFlow(_PluginBase):
     """
 
     plugin_name = "站点刷流增强版"
-    plugin_desc = "完整保留站点刷流能力，增加分享率缺口自适应选种、活跃需求保护、可解释智能删种、容量上下阈值、审计与限额。"
+    plugin_desc = "完整保留站点刷流能力，增加分享率缺口自适应选种、活跃需求保护、无效 Tracker 做种清理、可解释智能删种、容量上下阈值、审计与限额。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "7.1.0"
+    plugin_version = "7.2.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -336,6 +350,8 @@ class BrushFlow(_PluginBase):
         "smart_history",
         "smart_deletions",
         "smart_plan",
+        "invalid_seed_history",
+        "invalid_seed_plan",
     )
 
     def init_plugin(self, config: dict = None) -> None:
@@ -1829,6 +1845,136 @@ class BrushFlow(_PluginBase):
         self._append_run(task.id, report)
         self._set_runtime(task.id, state="idle", operation=None)
 
+    def __get_tracker_items(self, torrent: Any) -> List[dict]:
+        """获取 qBittorrent 的逐种子 Tracker 状态，兼容不同适配器字段。"""
+        if isinstance(torrent, dict):
+            trackers = torrent.get("trackers") or torrent.get("tracker_stats")
+        else:
+            trackers = getattr(torrent, "trackers", None) or getattr(torrent, "tracker_stats", None)
+        if trackers:
+            return list(trackers) if isinstance(trackers, (list, tuple)) else []
+
+        downloader = self.downloader
+        qbc = getattr(downloader, "qbc", None) if downloader else None
+        torrent_hash = self.__get_hash(torrent)
+        if not qbc or not torrent_hash:
+            return []
+        for method_name in ("torrents_trackers", "get_torrent_trackers"):
+            method = getattr(qbc, method_name, None)
+            if not method:
+                continue
+            try:
+                try:
+                    result = method(torrent_hash=torrent_hash)
+                except TypeError:
+                    result = method(torrent_hash)
+                if isinstance(result, dict):
+                    result = result.get("data", result.get("trackers", []))
+                return list(result or []) if isinstance(result, (list, tuple)) else []
+            except Exception as err:
+                logger.debug(f"获取种子 [{torrent_hash}] Tracker 状态失败：{str(err)}")
+        return []
+
+    def __collect_invalid_tracker_states(
+        self,
+        torrents: List[Any],
+    ) -> Tuple[Dict[str, List[dict]], Set[str]]:
+        """扫描当前下载器 Tracker 状态，并收集仍然工作的 Tracker 域名。"""
+        states: Dict[str, List[dict]] = {}
+        working_domains: Set[str] = set()
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            if not torrent_hash:
+                continue
+            trackers = self.__get_tracker_items(torrent)
+            states[torrent_hash] = trackers
+            for tracker in trackers:
+                try:
+                    status = int(tracker.get("status", -1))
+                except (AttributeError, TypeError, ValueError):
+                    status = -1
+                if status not in (2, 3):
+                    continue
+                domain = tracker_endpoint_domain(
+                    tracker.get("url", tracker.get("announce", tracker.get("tracker")))
+                )
+                if domain:
+                    working_domains.add(domain)
+        return states, working_domains
+
+    def __plan_invalid_seed_deletions(
+        self,
+        torrents: List[Any],
+        torrent_tasks: Dict[str, dict],
+        tracker_states: Dict[str, List[dict]],
+        working_domains: Set[str],
+    ) -> Tuple[List[str], Dict[str, str]]:
+        """按明确 Tracker 拒绝、跨种子故障确认和连续次数生成无效做种计划。"""
+        task = self._get_task_config()
+        if not task or not task.invalid_seed_cleanup_enabled:
+            self._save_current_task_data("invalid_seed_plan", {})
+            return [], {}
+
+        now = time.time()
+        history = self._current_task_data("invalid_seed_history", [])
+        history = [
+            row for row in history
+            if now - float(row.get("at") or 0) <= 24 * 3600
+        ]
+        history_by_key = {
+            (str(row.get("hash") or ""), str(row.get("signature") or "")): row
+            for row in history
+        }
+        plan: Dict[str, str] = {}
+        delete_hashes: List[str] = []
+        active_keys: Set[Tuple[str, str]] = set()
+        confirmations = max(int(task.invalid_seed_confirmations or 2), 1)
+
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            torrent_task = torrent_tasks.get(torrent_hash)
+            if not torrent_hash or not torrent_task or torrent_task.get("deleted"):
+                continue
+            if torrent_task.get("hit_and_run"):
+                continue
+            decision = detect_invalid_seed(
+                tracker_states.get(torrent_hash, []),
+                working_domains=working_domains,
+            )
+            if not decision.invalid:
+                continue
+            signature = "|".join(
+                (*decision.domains, *decision.messages)
+            )
+            key = (torrent_hash, signature)
+            active_keys.add(key)
+            previous = history_by_key.get(key)
+            previous_at = float(previous.get("at") or 0) if previous else 0
+            count = int(previous.get("count") or 0) + 1 if now - previous_at <= 12 * 3600 else 1
+            history_by_key[key] = {
+                "hash": torrent_hash,
+                "signature": signature,
+                "count": count,
+                "at": now,
+                "domains": list(decision.domains),
+                "messages": list(decision.messages),
+            }
+            if count < confirmations:
+                continue
+            reason = (
+                f"Tracker 明确拒绝（{', '.join(decision.messages) or '无效做种'}），"
+                f"已连续确认 {count} 次；仅移除 qB 任务，不删除下载数据"
+            )
+            delete_hashes.append(torrent_hash)
+            plan[torrent_hash] = reason
+
+        self._save_current_task_data(
+            "invalid_seed_history",
+            [row for key, row in history_by_key.items() if key in active_keys][-2000:],
+        )
+        self._save_current_task_data("invalid_seed_plan", plan)
+        return list(dict.fromkeys(delete_hashes)), plan
+
     def _run_check(self, task: BrushTaskConfig, report: dict) -> None:
         """在已绑定任务上下文中执行刷流种子检查"""
         if not self._validate_task_reference(task) or not self.downloader:
@@ -1853,39 +1999,81 @@ class BrushFlow(_PluginBase):
         self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
         self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, check_hashes, seeding_torrents)
         filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
+        invalid_delete_hashes: List[str] = []
+        invalid_seed_plan: Dict[str, str] = {}
+        if task.invalid_seed_cleanup_enabled:
+            tracker_states, working_domains = self.__collect_invalid_tracker_states(seeding_torrents)
+            invalid_delete_hashes, invalid_seed_plan = self.__plan_invalid_seed_deletions(
+                filtered_torrents,
+                torrent_tasks,
+                tracker_states,
+                working_domains,
+            )
+        report["invalid_seed_plan_count"] = len(invalid_delete_hashes)
+        report["invalid_seed_plan_reasons"] = list(invalid_seed_plan.values())
         if task.smart_enabled:
-            need_delete_hashes = self.__delete_torrent_for_smart(filtered_torrents, torrent_tasks)
+            regular_delete_hashes = self.__delete_torrent_for_smart(filtered_torrents, torrent_tasks)
             smart_plan = self._current_task_data("smart_plan", {})
-            report["smart_plan_count"] = len(need_delete_hashes)
+            report["smart_plan_count"] = len(regular_delete_hashes)
             report["smart_plan_reasons"] = list(smart_plan.values())
         elif self._global_dynamic_delete_enabled():
-            need_delete_hashes = []
+            regular_delete_hashes = []
         elif task.proxy_delete and task.delete_size_range:
-            need_delete_hashes = self.__delete_torrent_for_proxy(filtered_torrents, torrent_tasks)
+            regular_delete_hashes = self.__delete_torrent_for_proxy(filtered_torrents, torrent_tasks)
         else:
-            need_delete_hashes = self.__delete_torrent_for_evaluate_conditions(filtered_torrents, torrent_tasks)
-        need_delete_hashes = list(dict.fromkeys(need_delete_hashes or []))
-        planned_delete_count = len(need_delete_hashes)
+            regular_delete_hashes = self.__delete_torrent_for_evaluate_conditions(filtered_torrents, torrent_tasks)
+        invalid_delete_hashes = list(dict.fromkeys(invalid_delete_hashes or []))
+        regular_delete_hashes = [
+            torrent_hash
+            for torrent_hash in dict.fromkeys(regular_delete_hashes or [])
+            if torrent_hash not in invalid_delete_hashes
+        ]
+        planned_delete_count = len(invalid_delete_hashes) + len(regular_delete_hashes)
         deleted_from_downloader = False
+        actual_invalid_hashes: List[str] = []
+        actual_regular_hashes: List[str] = []
+        if invalid_delete_hashes:
+            if task.delete_dry_run and not task.smart_enabled:
+                for torrent_hash in invalid_delete_hashes:
+                    logger.info(
+                        f"[模拟删种] 无效做种计划仅移除 qB 任务："
+                        f"{invalid_seed_plan.get(torrent_hash, torrent_hash)}"
+                    )
+            elif downloader.delete_torrents(ids=invalid_delete_hashes, delete_file=False):
+                deleted_from_downloader = True
+                actual_invalid_hashes = invalid_delete_hashes
+                for torrent_hash in actual_invalid_hashes:
+                    if torrent_hash in torrent_tasks:
+                        torrent_tasks[torrent_hash]["deleted"] = True
+                        torrent_tasks[torrent_hash]["deleted_time"] = time.time()
+                    torrent_task = torrent_tasks.get(torrent_hash)
+                    if torrent_task:
+                        self.__send_delete_message(
+                            torrent_task,
+                            invalid_seed_plan.get(torrent_hash, "Tracker 明确拒绝，清理无效做种"),
+                        )
+                self._save_current_task_data("invalid_seed_plan", {})
+            else:
+                logger.warning(f"刷流任务 [{task.name}] 清理无效做种失败，本轮保留任务")
         # 智能模式是明确的实际执行模式，不沿用旧版的“模拟运行”开关；旧任务
         # 仍按 6.2 的 delete_dry_run 行为运行，避免升级后改变既有任务。
-        if need_delete_hashes and task.delete_dry_run and not task.smart_enabled:
+        if regular_delete_hashes and task.delete_dry_run and not task.smart_enabled:
             logger.info(
-                f"[模拟删种] 任务 [{task.name}] 本轮计划删除 {planned_delete_count} 个种子，未执行实际删除"
+                f"[模拟删种] 任务 [{task.name}] 本轮计划删除 {len(regular_delete_hashes)} 个普通种子，未执行实际删除"
             )
-            need_delete_hashes = []
-        elif need_delete_hashes:
+        elif regular_delete_hashes:
             if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
-                self.__qb_torrents_reannounce(need_delete_hashes)
-            if downloader.delete_torrents(ids=need_delete_hashes, delete_file=task.delete_files):
+                self.__qb_torrents_reannounce(regular_delete_hashes)
+            if downloader.delete_torrents(ids=regular_delete_hashes, delete_file=task.delete_files):
                 deleted_from_downloader = True
-                for torrent_hash in need_delete_hashes:
+                actual_regular_hashes = regular_delete_hashes
+                for torrent_hash in actual_regular_hashes:
                     if torrent_hash in torrent_tasks:
                         torrent_tasks[torrent_hash]["deleted"] = True
                         torrent_tasks[torrent_hash]["deleted_time"] = time.time()
                 if task.smart_enabled:
                     smart_plan = self._current_task_data("smart_plan", {})
-                    for torrent_hash in need_delete_hashes:
+                    for torrent_hash in actual_regular_hashes:
                         torrent_task = torrent_tasks.get(torrent_hash)
                         if torrent_task:
                             self.__send_delete_message(
@@ -1893,7 +2081,10 @@ class BrushFlow(_PluginBase):
                                 smart_plan.get(torrent_hash, "智能策略已确认删除"),
                             )
                     self._save_current_task_data("smart_plan", {})
-                    self.__record_smart_deletions(need_delete_hashes, torrent_tasks)
+                    self.__record_smart_deletions(actual_regular_hashes, torrent_tasks)
+            else:
+                logger.warning(f"刷流任务 [{task.name}] 普通删种执行失败，本轮保留任务")
+        need_delete_hashes = list(dict.fromkeys(actual_invalid_hashes + actual_regular_hashes))
         self.__auto_archive_tasks(torrent_tasks)
         self._cleanup_unused_task_tag(
             task,

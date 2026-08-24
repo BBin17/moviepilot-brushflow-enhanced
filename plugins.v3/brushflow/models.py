@@ -66,6 +66,8 @@ class BrushTaskPayload(BaseModel):
     smart_ratio_weight: float = Field(18, ge=0, le=40)
     smart_cold_inactive_minutes: float = Field(360, ge=0)
     smart_protect_active_demand: bool = True
+    invalid_seed_cleanup_enabled: bool = False
+    invalid_seed_confirmations: int = Field(2, ge=1, le=5)
     smart_score_threshold: float = Field(40, ge=0, le=100)
     smart_score_margin: float = Field(0, ge=0, le=100)
     smart_max_delete_per_run: int = Field(3, ge=1, le=100)

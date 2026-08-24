@@ -19,6 +19,7 @@ import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional, Sequence
+from urllib.parse import urlparse
 
 
 def _number(value: Any, default: float = 0.0) -> float:
@@ -40,6 +41,97 @@ def _tags(value: Any) -> tuple[str, ...]:
     if isinstance(value, Iterable):
         return tuple(str(item).strip() for item in value if str(item).strip())
     return ()
+
+
+DEFAULT_INVALID_TRACKER_MESSAGES = (
+    "torrent not registered",
+    "torrent banned",
+    "torrent not exists",
+    "torrent does not exist",
+    "torrent not found",
+)
+
+
+def tracker_endpoint_domain(value: Any) -> str:
+    """提取 tracker 域名，供无效做种的跨种子故障保护使用。"""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parsed = urlparse(text if "://" in text else f"//{text}")
+    return (parsed.hostname or "").lower().strip(".")
+
+
+def _tracker_message(value: Any) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+@dataclass(frozen=True)
+class InvalidSeedDecision:
+    """Tracker 明确拒绝某个种子的可解释判定。"""
+
+    invalid: bool
+    domains: tuple[str, ...] = ()
+    messages: tuple[str, ...] = ()
+    reason: str = ""
+
+
+def detect_invalid_seed(
+    trackers: Sequence[Mapping[str, Any]] | None,
+    *,
+    working_domains: Iterable[str] = (),
+    invalid_messages: Sequence[str] = DEFAULT_INVALID_TRACKER_MESSAGES,
+) -> InvalidSeedDecision:
+    """只在 Tracker 明确拒绝且站点整体仍可用时判定无效做种。
+
+    “Request too frequent”“unreachable”“skipping announce”等临时错误不在
+    拒绝词表内；一个种子只要仍有任一正常或未知 Tracker，就不会被判为无效。
+    working_domains 用于确认同一 Tracker 在下载器的其它种子上仍能正常工作，
+    避免站点整体故障时批量误删。
+    """
+    rows = []
+    for tracker in trackers or ():
+        if not isinstance(tracker, Mapping):
+            continue
+        try:
+            tier = int(_number(tracker.get("tier"), 0))
+        except (TypeError, ValueError):
+            tier = 0
+        if tier == -1:
+            continue
+        status = int(_number(tracker.get("status"), -1))
+        message = _tracker_message(
+            tracker.get("msg", tracker.get("message", tracker.get("error")))
+        )
+        domain = tracker_endpoint_domain(
+            tracker.get("url", tracker.get("announce", tracker.get("tracker")))
+        )
+        terminal = status == 4 and bool(message) and any(
+            marker.lower() in message for marker in invalid_messages if str(marker).strip()
+        )
+        rows.append((terminal, domain, message))
+
+    if not rows:
+        return InvalidSeedDecision(False, reason="no_tracker_evidence")
+    if not any(terminal for terminal, _, _ in rows):
+        return InvalidSeedDecision(False, reason="no_explicit_invalid_error")
+    if any(not terminal for terminal, _, _ in rows):
+        return InvalidSeedDecision(False, reason="tracker_not_explicitly_invalid")
+
+    domains = tuple(sorted({domain for _, domain, _ in rows if domain}))
+    trusted_domains = {str(item).lower().strip(".") for item in working_domains if item}
+    if not domains or not trusted_domains.intersection(domains):
+        return InvalidSeedDecision(
+            False,
+            domains=domains,
+            messages=tuple(sorted({message for _, _, message in rows if message})),
+            reason="tracker_outage_not_confirmed",
+        )
+    return InvalidSeedDecision(
+        True,
+        domains=domains,
+        messages=tuple(sorted({message for _, _, message in rows if message})),
+        reason="explicit_invalid_tracker_error",
+    )
 
 
 @dataclass(frozen=True)

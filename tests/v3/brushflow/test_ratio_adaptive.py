@@ -106,6 +106,38 @@ class DecisionEngineTests(unittest.TestCase):
         )
         self.assertEqual([item.torrent_hash for item in result.selected], ["low"])
 
+    def test_invalid_seed_requires_explicit_error_and_working_tracker(self):
+        invalid = decision.detect_invalid_seed(
+            [{
+                "status": 4,
+                "url": "https://tracker.example/announce",
+                "msg": "Torrent not registered with this tracker",
+            }],
+            working_domains={"tracker.example"},
+        )
+        self.assertTrue(invalid.invalid)
+        self.assertEqual(invalid.domains, ("tracker.example",))
+
+        transient = decision.detect_invalid_seed(
+            [{
+                "status": 4,
+                "url": "https://tracker.example/announce",
+                "msg": "Request too frequent(h)",
+            }],
+            working_domains={"tracker.example"},
+        )
+        self.assertFalse(transient.invalid)
+
+        outage = decision.detect_invalid_seed(
+            [{
+                "status": 4,
+                "url": "https://tracker.example/announce",
+                "msg": "Torrent banned",
+            }],
+            working_domains=set(),
+        )
+        self.assertFalse(outage.invalid)
+
 
 if __name__ == "__main__":
     unittest.main()
