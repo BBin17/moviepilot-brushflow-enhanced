@@ -195,15 +195,19 @@ class BrushTaskConfig:
         self.smart_selection_enabled = bool(
             config.get("smart_selection_enabled", self.smart_enabled)
         )
-        self.smart_selection_min_score = self._parse_number(
+        smart_selection_min_score = self._parse_number(
             config.get("smart_selection_min_score", 25)
-        ) or 25
+        )
+        self.smart_selection_min_score = (
+            25 if smart_selection_min_score is None else smart_selection_min_score
+        )
         self.smart_selection_max_add_per_run = int(
             self._parse_number(config.get("smart_selection_max_add_per_run", 5)) or 5
         )
         self.smart_min_ratio = self._parse_number(config.get("smart_min_ratio", 0)) or 0
         self.smart_min_uploaded = self._parse_number(config.get("smart_min_uploaded"))
-        self.smart_score_threshold = self._parse_number(config.get("smart_score_threshold", 40)) or 40
+        smart_score_threshold = self._parse_number(config.get("smart_score_threshold", 40))
+        self.smart_score_threshold = 40 if smart_score_threshold is None else smart_score_threshold
         self.smart_score_margin = self._parse_number(config.get("smart_score_margin", 0)) or 0
         self.smart_max_delete_per_run = int(
             self._parse_number(config.get("smart_max_delete_per_run", 3)) or 3
