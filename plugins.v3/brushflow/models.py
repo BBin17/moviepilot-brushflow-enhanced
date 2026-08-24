@@ -55,6 +55,18 @@ class BrushTaskPayload(BaseModel):
     seed_inactivetime: Optional[float] = Field(None, gt=0)
     min_seed_time: Optional[float] = Field(None, gt=0)
     min_inactivetime: Optional[float] = Field(None, gt=0)
+    smart_enabled: bool = False
+    smart_selection_enabled: bool = True
+    smart_selection_min_score: float = Field(25, ge=0, le=100)
+    smart_selection_max_add_per_run: int = Field(5, ge=1, le=100)
+    smart_min_ratio: Optional[float] = Field(0, ge=0)
+    smart_min_uploaded: Optional[float] = Field(None, ge=0)
+    smart_score_threshold: float = Field(40, ge=0, le=100)
+    smart_score_margin: float = Field(0, ge=0, le=100)
+    smart_max_delete_per_run: int = Field(3, ge=1, le=100)
+    smart_max_delete_percent_day: float = Field(5, ge=0, le=100)
+    smart_allow_proactive_delete: bool = True
+    smart_required_conditions: bool = False
     delete_condition_mode: Literal["any", "all"] = "any"
     dynamic_require_conditions: bool = False
     dynamic_sort_mode: Literal["smart", "oldest", "inactive", "low_speed", "largest"] = "smart"
@@ -92,6 +104,7 @@ class BrushTaskPayload(BaseModel):
         "seed_inactivetime",
         "min_seed_time",
         "min_inactivetime",
+        "smart_min_uploaded",
         "delete_min_size",
         "delete_max_size",
         "up_speed",
@@ -178,6 +191,13 @@ class BrushTaskPayload(BaseModel):
         """启用站点分享率控制时要求同时配置有效目标值。"""
         if self.site_ratio_control and self.site_ratio_target is None:
             raise ValueError("启用站点分享率控制时必须设置目标分享率")
+        return self
+
+    @model_validator(mode="after")
+    def validate_smart_policy(self):
+        """智能删种必须明确填入当前站点的最低保种时长。"""
+        if self.smart_enabled and self.min_seed_time is None:
+            raise ValueError("启用智能删种时必须设置当前站点的最低保种时长")
         return self
 
     @model_validator(mode="after")

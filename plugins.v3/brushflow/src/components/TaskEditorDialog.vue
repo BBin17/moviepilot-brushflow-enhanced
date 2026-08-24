@@ -228,7 +228,33 @@ async function saveTask() {
                   <VSwitch v-model="localTask.rss_support" label="使用 RSS" color="primary" hide-details inset />
                   <VSwitch v-model="localTask.except_subscribe" label="排除订阅" color="primary" hide-details inset />
                   <VSwitch v-model="localTask.site_hr_active" label="全站 H&R" color="primary" hide-details inset />
+                  <VSwitch v-model="localTask.smart_selection_enabled" label="启用智能选种" color="primary" hide-details inset />
                 </div>
+                <VAlert v-if="localTask.smart_selection_enabled" type="info" variant="tonal" density="compact">
+                  新增候选会优先选择免费/双倍、下载者更多、做种更稀缺、发布时间更新且 H&R 风险更低的种子，并限制本轮最多新增数量；现有包含/排除和容量规则仍优先执行。
+                </VAlert>
+                <VRow v-if="localTask.smart_selection_enabled">
+                  <VCol cols="12" md="6">
+                    <VTextField
+                      v-model.number="localTask.smart_selection_min_score"
+                      type="number"
+                      min="0"
+                      max="100"
+                      label="智能选种最低分"
+                      hint="低于此分数的候选跳过，建议 20-35"
+                      persistent-hint
+                    />
+                  </VCol>
+                  <VCol cols="12" md="6">
+                    <VTextField
+                      v-model.number="localTask.smart_selection_max_add_per_run"
+                      type="number"
+                      min="1"
+                      max="100"
+                      label="每轮智能选种最多新增数"
+                    />
+                  </VCol>
+                </VRow>
               </section>
 
               <section class="editor-section">
@@ -318,6 +344,16 @@ async function saveTask() {
                   <VBtn :value="false">{{ globalDynamicDelete ? '不参与托管' : '按条件删除' }}</VBtn>
                   <VBtn :value="true">{{ globalDynamicDelete ? '参与全局托管' : '动态删种' }}</VBtn>
                 </VBtnToggle>
+                <VSwitch
+                  v-model="localTask.smart_enabled"
+                  label="启用智能决策删种（实际执行）"
+                  color="error"
+                  hide-details
+                  inset
+                />
+                <VAlert v-if="localTask.smart_enabled" type="warning" variant="tonal" density="compact">
+                  智能模式会实际删除 qB 任务及数据，不使用模拟运行。它会先满足站点最低保种时长，再根据上传速度、下载者、稀缺性、闲置趋势和容量压力决定；热门种子会继续保留。
+                </VAlert>
                 <VRow v-if="localTask.proxy_delete && !globalDynamicDelete">
                   <VCol cols="12" md="6">
                     <VTextField
@@ -350,12 +386,55 @@ async function saveTask() {
                 </header>
                 <VRow>
                   <VCol cols="12" md="6">
-                    <VTextField v-model.number="localTask.min_seed_time" type="number" min="0" label="最少保种时长（小时）" />
+                    <VTextField
+                      v-model.number="localTask.min_seed_time"
+                      type="number"
+                      min="0"
+                      label="站点最低保种时长（小时）"
+                      hint="按当前站点规则填写，不固定为 72 小时"
+                      persistent-hint
+                    />
                   </VCol>
                   <VCol cols="12" md="6">
                     <VTextField v-model.number="localTask.min_inactivetime" type="number" min="0" label="最少未活动时间（分钟）" />
                   </VCol>
                 </VRow>
+                <VRow v-if="localTask.smart_enabled">
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_min_ratio" type="number" min="0" step="0.01" label="最低分享率（可选）" hint="留空或 0 不按分享率硬拦截" persistent-hint />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_min_uploaded" type="number" min="0" step="0.1" label="最低上传量（GB，可选）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_score_threshold" type="number" min="0" max="100" label="低价值分数阈值" hint="越高越容易淘汰，建议 35-45" persistent-hint />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_score_margin" type="number" min="0" max="100" label="安全余量" hint="从阈值再减去的分数，建议 0-5" persistent-hint />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_max_delete_per_run" type="number" min="1" max="100" label="每轮最多删除数" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_max_delete_percent_day" type="number" min="0" max="100" label="每日最多删除比例（%）" />
+                  </VCol>
+                </VRow>
+                <div v-if="localTask.smart_enabled" class="editor-switches">
+                  <VSwitch
+                    v-model="localTask.smart_required_conditions"
+                    label="同时满足旧版删除条件才允许删除"
+                    color="primary"
+                    hide-details
+                    inset
+                  />
+                  <VSwitch
+                    v-model="localTask.smart_allow_proactive_delete"
+                    label="未达到容量压力也允许主动清理"
+                    color="warning"
+                    hide-details
+                    inset
+                  />
+                </div>
               </section>
               <section class="editor-section">
                 <header class="editor-section__head">
@@ -426,6 +505,7 @@ async function saveTask() {
                   inset
                 />
                 <VSwitch
+                  v-if="!localTask.smart_enabled"
                   v-model="localTask.delete_dry_run"
                   label="模拟运行（只记录计划，不实际删除）"
                   color="warning"
@@ -485,7 +565,7 @@ async function saveTask() {
               <div><dt>目标分享率</dt><dd>{{ localTask.site_ratio_control ? localTask.site_ratio_target || '未设置' : '关闭' }}</dd></div>
               <div><dt>促销</dt><dd>{{ localTask.freeleech === '2xfree' ? '2X 免费' : localTask.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
               <div><dt>保种上限</dt><dd>{{ localTask.disksize ? `${localTask.disksize} GB` : '不限' }}</dd></div>
-              <div><dt>删除</dt><dd>{{ localTask.proxy_delete ? '动态删种' : '按条件删除' }}</dd></div>
+              <div><dt>删除</dt><dd>{{ localTask.smart_enabled ? '智能决策（实际执行）' : localTask.proxy_delete ? '动态删种' : '按条件删除' }}</dd></div>
             </dl>
           </VSheet>
         </VForm>

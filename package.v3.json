@@ -1,14 +1,15 @@
 {
   "BrushFlow": {
     "name": "站点刷流增强版",
-    "description": "基于官方 BrushFlow 6.1.0，增加组合删种、最少保种安全线、容量上下阈值、智能淘汰、模拟运行和数据保留开关。",
+    "description": "基于官方 BrushFlow 6.1.0，增加智能选种、站点级最低保种、实时需求评分、智能冷种清理、容量上下阈值、每日限额和审计。",
     "labels": "刷流,仪表板,删种安全",
-    "version": "6.2.0",
+    "version": "7.0.0",
     "icon": "brush-flow.png",
     "author": "jxxghp,InfinityPacer,Seed680; enhanced locally",
     "level": 2,
     "system_version": ">=3.0.0",
     "history": {
+      "v7.0.0": "新增智能选种、站点级最低保种时长、上传/下载者/稀缺性/闲置趋势评分、热门种子保护、智能冷种实际清理、每轮与每日删除限额、审计原因和旧任务兼容。",
       "v6.2.0": "新增最少保种/未活动硬安全线、任一/全部条件、动态容量上下阈值、智能淘汰顺序、模拟运行及是否删除数据开关。",
       "v6.1.0": "基于官方 BrushFlow V3 SDK 版本。"
     }

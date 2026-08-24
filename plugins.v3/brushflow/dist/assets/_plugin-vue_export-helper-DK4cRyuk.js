@@ -1,4 +1,4 @@
-export const taskDefaults = {
+const taskDefaults = {
   id: '',
   name: '',
   enabled: true,
@@ -65,10 +65,10 @@ export const taskDefaults = {
   site_skip_tips: false,
   rss_support: false,
   tag: null,
-}
+};
 
 /** 统一提取宿主 API 客户端与标准响应模型中的业务数据。 */
-export function unwrapResponse(response) {
+function unwrapResponse(response) {
   if (response && Object.prototype.hasOwnProperty.call(response, 'success')) {
     if (response.success === false) throw new Error(response.message || '操作失败')
     return response.data
@@ -77,13 +77,13 @@ export function unwrapResponse(response) {
 }
 
 /** 基于完整默认值创建可安全编辑的任务深拷贝。 */
-export function cloneTask(task = {}) {
+function cloneTask(task = {}) {
   return JSON.parse(JSON.stringify({ ...taskDefaults, ...(task || {}) }))
 }
 
 /** 把表单空值和数字字段标准化为后端请求模型需要的类型。 */
-export function normalizeTask(task) {
-  const result = cloneTask(task)
+function normalizeTask(task) {
+  const result = cloneTask(task);
   const nullableNumbers = [
     'disksize',
     'maxupspeed',
@@ -107,7 +107,7 @@ export function normalizeTask(task) {
     'up_speed',
     'dl_speed',
     'auto_archive_days',
-  ]
+  ];
   const optionalText = [
     'cron',
     'active_time_range',
@@ -121,31 +121,31 @@ export function normalizeTask(task) {
     'delete_except_tags',
     'qb_category',
     'tag',
-  ]
+  ];
   nullableNumbers.forEach(key => {
-    const value = result[key] === '' || result[key] === null ? null : Number(result[key])
-    result[key] = value === 0 ? null : value
+    const value = result[key] === '' || result[key] === null ? null : Number(result[key]);
+    result[key] = value === 0 ? null : value;
   })
   ;['smart_selection_max_add_per_run', 'smart_score_threshold', 'smart_score_margin', 'smart_max_delete_per_run', 'smart_max_delete_percent_day'].forEach(key => {
-    const value = Number(result[key])
-    if (Number.isFinite(value)) result[key] = value
-  })
+    const value = Number(result[key]);
+    if (Number.isFinite(value)) result[key] = value;
+  });
   optionalText.forEach(key => {
-    result[key] = String(result[key] || '').trim() || null
-  })
+    result[key] = String(result[key] || '').trim() || null;
+  });
   if (result.delete_min_size && result.delete_max_size) {
-    result.delete_size_range = `${result.delete_min_size}-${result.delete_max_size}`
+    result.delete_size_range = `${result.delete_min_size}-${result.delete_max_size}`;
   }
-  result.site_id = Number(result.site_id)
-  result.brush_interval = Number(result.brush_interval || 10)
-  result.check_interval = Number(result.check_interval || 5)
-  result.timezone_offset = Number(result.timezone_offset || 0)
+  result.site_id = Number(result.site_id);
+  result.brush_interval = Number(result.brush_interval || 10);
+  result.check_interval = Number(result.check_interval || 5);
+  result.timezone_offset = Number(result.timezone_offset || 0);
   return result
 }
 
 /** 把全局设置中的空值、零值和正数标准化为后端请求类型。 */
-export function normalizeSettings(settings = {}) {
-  const result = { ...(settings || {}) }
+function normalizeSettings(settings = {}) {
+  const result = { ...(settings || {}) };
   const limitFields = [
     'global_disksize',
     'global_maxdlcount',
@@ -153,34 +153,34 @@ export function normalizeSettings(settings = {}) {
     'global_maxdlspeed',
     'global_delete_min_size',
     'global_delete_max_size',
-  ]
+  ];
   limitFields.forEach(key => {
-    const value = Number(result[key] || 0)
-    result[key] = value > 0 ? value : null
-  })
-  result.global_proxy_delete = Boolean(result.global_proxy_delete)
+    const value = Number(result[key] || 0);
+    result[key] = value > 0 ? value : null;
+  });
+  result.global_proxy_delete = Boolean(result.global_proxy_delete);
   result.global_delete_size_range = result.global_proxy_delete
     && result.global_delete_min_size
     && result.global_delete_max_size
     ? `${result.global_delete_min_size}-${result.global_delete_max_size}`
-    : null
+    : null;
   return result
 }
 
 /** 将字节数格式化为适合紧凑界面展示的容量文本。 */
-export function formatBytes(value) {
-  const bytes = Number(value || 0)
+function formatBytes(value) {
+  const bytes = Number(value || 0);
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const number = bytes / 1024 ** index
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const number = bytes / 1024 ** index;
   return `${number >= 100 ? number.toFixed(0) : number.toFixed(1)} ${units[index]}`
 }
 
 /** 将时间值格式化为当前界面使用的月日与时分。 */
-export function formatDateTime(value) {
+function formatDateTime(value) {
   if (!value) return '暂无'
-  const date = new Date(value)
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value)
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
@@ -191,14 +191,14 @@ export function formatDateTime(value) {
 }
 
 /** 计算一次运行记录的秒级耗时。 */
-export function formatDuration(startedAt, finishedAt) {
+function formatDuration(startedAt, finishedAt) {
   if (!startedAt || !finishedAt) return '-'
-  const seconds = Math.max(Math.round((new Date(finishedAt) - new Date(startedAt)) / 1000), 0)
+  const seconds = Math.max(Math.round((new Date(finishedAt) - new Date(startedAt)) / 1000), 0);
   return `${seconds} 秒`
 }
 
 /** 返回任务状态对应的中文文本、主题色和图标。 */
-export function taskStateMeta(state) {
+function taskStateMeta(state) {
   const states = {
     running: { text: '运行中', color: 'success', icon: 'mdi-check-circle-outline' },
     brush: { text: '正在刷新', color: 'primary', icon: 'mdi-sync' },
@@ -209,13 +209,23 @@ export function taskStateMeta(state) {
     ratio_unavailable: { text: '等待数据', color: 'info', icon: 'mdi-database-clock-outline' },
     disabled: { text: '插件停用', color: 'secondary', icon: 'mdi-stop-circle-outline' },
     error: { text: '运行异常', color: 'error', icon: 'mdi-alert-circle-outline' },
-  }
+  };
   return states[state] || states.running
 }
 
 /** 根据已下载量和总大小计算种子完成百分比。 */
-export function torrentProgress(item) {
-  const size = Number(item?.size || 0)
+function torrentProgress(item) {
+  const size = Number(item?.size || 0);
   if (!size) return 0
   return Math.min(Math.round((Number(item.downloaded || 0) * 100) / size), 100)
 }
+
+const _export_sfc = (sfc, props) => {
+  const target = sfc.__vccOpts || sfc;
+  for (const [key, val] of props) {
+    target[key] = val;
+  }
+  return target;
+};
+
+export { _export_sfc as _, formatDateTime as a, formatDuration as b, cloneTask as c, torrentProgress as d, normalizeSettings as e, formatBytes as f, normalizeTask as n, taskStateMeta as t, unwrapResponse as u };
