@@ -231,8 +231,24 @@ async function saveTask() {
                   <VSwitch v-model="localTask.smart_selection_enabled" label="启用智能选种" color="primary" hide-details inset />
                 </div>
                 <VAlert v-if="localTask.smart_selection_enabled" type="info" variant="tonal" density="compact">
-                  新增候选会优先选择免费/双倍、下载者更多、做种更稀缺、发布时间更新且 H&R 风险更低的种子，并限制本轮最多新增数量；现有包含/排除和容量规则仍优先执行。
+                  新增候选会优先选择免费/双倍、下载者更多、做种更稀缺、发布时间更新且 H&R 风险更低的种子；分享率接近目标时会自动收紧新增数量和评分门槛。
                 </VAlert>
+                <div v-if="localTask.smart_selection_enabled" class="editor-switches">
+                  <VSwitch
+                    v-model="localTask.smart_adaptive_enabled"
+                    label="按分享率缺口自适应选种"
+                    color="primary"
+                    hide-details
+                    inset
+                  />
+                  <VSwitch
+                    v-model="localTask.smart_selection_relax_filters"
+                    label="大小/做种人数交给智能评分"
+                    color="primary"
+                    hide-details
+                    inset
+                  />
+                </div>
                 <VRow v-if="localTask.smart_selection_enabled">
                   <VCol cols="12" md="6">
                     <VTextField
@@ -418,8 +434,36 @@ async function saveTask() {
                   <VCol cols="12" md="4">
                     <VTextField v-model.number="localTask.smart_max_delete_percent_day" type="number" min="0" max="100" label="每日最多删除比例（%）" />
                   </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField
+                      v-model.number="localTask.smart_ratio_weight"
+                      type="number"
+                      min="0"
+                      max="40"
+                      label="分享率保留权重"
+                      hint="越高越保护高分享率种子，建议 15-25"
+                      persistent-hint
+                    />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField
+                      v-model.number="localTask.smart_cold_inactive_minutes"
+                      type="number"
+                      min="0"
+                      label="智能冷种保护时间（分钟）"
+                      hint="达到最低保种后，近期有活动的种子暂不淘汰"
+                      persistent-hint
+                    />
+                  </VCol>
                 </VRow>
                 <div v-if="localTask.smart_enabled" class="editor-switches">
+                  <VSwitch
+                    v-model="localTask.smart_protect_active_demand"
+                    label="有下载需求时禁止删种"
+                    color="primary"
+                    hide-details
+                    inset
+                  />
                   <VSwitch
                     v-model="localTask.smart_required_conditions"
                     label="同时满足旧版删除条件才允许删除"
