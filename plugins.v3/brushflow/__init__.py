@@ -1537,6 +1537,21 @@ class BrushFlow(_PluginBase):
             if report["subscription_excluded"]:
                 report["reason_counts"]["命中订阅内容"] = report["subscription_excluded"]
         report["candidate_count"] = len(torrents)
+
+        # 先过滤现有任务、跨站未完成、促销、H&R、包含/排除规则等硬条件，
+        # 再做智能评分。旧顺序是先取评分前 N 名再过滤，容易让前 N 名
+        # 恰好都是重复种子，导致没有候选补位。
+        eligible_torrents = []
+        for torrent in torrents:
+            passed, reason = self.__evaluate_conditions_for_brush(torrent, all_torrent_tasks)
+            if not passed:
+                report["reason_counts"][reason] += 1
+                continue
+            eligible_torrents.append(torrent)
+        report["eligible_count"] = len(eligible_torrents)
+        torrents = eligible_torrents
+
+        selection_limit = None
         if task.smart_selection_enabled or task.smart_enabled:
             ratio_current = (ratio_status or {}).get("current")
             ratio_target = (ratio_status or {}).get("target") or task.site_ratio_target or 2.0
@@ -1558,14 +1573,19 @@ class BrushFlow(_PluginBase):
                 "min_score": selection_min_score,
                 "adaptive": bool(task.smart_adaptive_enabled),
             }
+            report["smart_selection_input_count"] = len(torrents)
             ranked_candidates = rank_selection_candidates(
                 torrents,
                 min_score=selection_min_score,
-                max_count=selection_limit,
+                # 评分阶段保留完整候选池，下载阶段再按上限停止，
+                # 这样前面的候选被动态条件拦截时可以继续补位。
+                max_count=max(selection_limit, len(torrents), 1),
                 share_ratio_gap=ratio_gap,
                 share_ratio_target=ratio_target,
             )
             report["smart_selection_count"] = len(ranked_candidates)
+            if torrents and not ranked_candidates:
+                report["reason_counts"]["低于智能评分阈值"] += len(torrents)
             report["smart_selection_scores"] = [
                 {
                     "title": getattr(item.candidate, "title", None)
@@ -1620,6 +1640,8 @@ class BrushFlow(_PluginBase):
             )
             logger.info(f"刷流任务 [{task.name}] 新增种子：{torrent.title}|{torrent.description}")
             self.__send_add_message(torrent)
+            if selection_limit is not None and report["added_count"] >= selection_limit:
+                break
         report["filtered_count"] = max(report["candidate_count"] - report["added_count"], 0)
         report["result"] = "completed"
 
@@ -1665,6 +1687,7 @@ class BrushFlow(_PluginBase):
             "source_count": 0,
             "subscription_excluded": 0,
             "candidate_count": 0,
+            "eligible_count": 0,
             "filtered_count": 0,
             "added_count": 0,
             "deleted_count": 0,
@@ -1672,6 +1695,7 @@ class BrushFlow(_PluginBase):
             "reason_counts": Counter(),
             "added_titles": [],
             "smart_selection_policy": None,
+            "smart_selection_input_count": 0,
             "smart_selection_count": 0,
         }
 
