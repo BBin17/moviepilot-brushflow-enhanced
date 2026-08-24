@@ -57,10 +57,15 @@ class BrushTaskPayload(BaseModel):
     min_inactivetime: Optional[float] = Field(None, gt=0)
     smart_enabled: bool = False
     smart_selection_enabled: bool = True
+    smart_adaptive_enabled: bool = True
+    smart_selection_relax_filters: bool = True
     smart_selection_min_score: float = Field(25, ge=0, le=100)
     smart_selection_max_add_per_run: int = Field(5, ge=1, le=100)
     smart_min_ratio: Optional[float] = Field(0, ge=0)
     smart_min_uploaded: Optional[float] = Field(None, ge=0)
+    smart_ratio_weight: float = Field(18, ge=0, le=40)
+    smart_cold_inactive_minutes: float = Field(360, ge=0)
+    smart_protect_active_demand: bool = True
     smart_score_threshold: float = Field(40, ge=0, le=100)
     smart_score_margin: float = Field(0, ge=0, le=100)
     smart_max_delete_per_run: int = Field(3, ge=1, le=100)

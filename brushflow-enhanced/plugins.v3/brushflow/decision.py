@@ -115,8 +115,12 @@ class SmartPolicy:
 
     min_seed_time_hours: float = 0.0
     min_inactive_minutes: float = 0.0
+    smart_cold_inactive_minutes: float = 360.0
+    protect_active_demand: bool = True
     min_ratio: float = 0.0
     min_uploaded_gb: float = 0.0
+    ratio_target: float = 2.0
+    ratio_weight: float = 18.0
     score_threshold: float = 40.0
     score_margin: float = 0.0
     max_delete_per_run: int = 3
@@ -185,8 +189,18 @@ def _candidate_age_minutes(candidate: Any) -> float:
     return 0.0
 
 
-def candidate_score(candidate: Any) -> CandidateDecision:
-    """给站点候选种子打分，分数越高越值得优先新增。"""
+def candidate_score(
+    candidate: Any,
+    *,
+    share_ratio_gap: float = 0.0,
+    share_ratio_target: float = 2.0,
+) -> CandidateDecision:
+    """给站点候选种子打分，分数越高越值得优先新增。
+
+    分享率越接近目标，选种越保守；缺口较大时，免费/双倍、下载需求、
+    稀缺性和“小体积高需求”会获得更高权重，避免容量被没有上传潜力的
+    大种子占满。
+    """
     download_factor = _number(_read_candidate(candidate, "downloadvolumefactor"), 1)
     upload_factor = _number(_read_candidate(candidate, "uploadvolumefactor"), 1)
     seeders = _positive(_read_candidate(candidate, "seeders"))
@@ -196,13 +210,16 @@ def candidate_score(candidate: Any) -> CandidateDecision:
     size = _positive(_read_candidate(candidate, "size"))
     hit_and_run = bool(_read_candidate(candidate, "hit_and_run", False))
 
+    ratio_target = max(_positive(share_ratio_target, 2.0), 1.0)
+    ratio_gap_factor = min(max(_number(share_ratio_gap) / ratio_target, 0.0), 1.0)
+
     promotion = 0.0
     if download_factor == 0:
-        promotion += 18.0
+        promotion += 18.0 + 6.0 * ratio_gap_factor
     if upload_factor >= 2:
-        promotion += 8.0
+        promotion += 8.0 + 4.0 * ratio_gap_factor
 
-    demand = min(math.log1p(leechers) / math.log1p(50), 1.0) * 28
+    demand = min(math.log1p(leechers) / math.log1p(50), 1.0) * (28.0 + 8.0 * ratio_gap_factor)
     if seeders <= 0:
         scarcity = 8.0
     elif seeders <= 3:
@@ -216,7 +233,12 @@ def candidate_score(candidate: Any) -> CandidateDecision:
 
     age_minutes = _candidate_age_minutes(candidate)
     freshness = max(0.0, 1.0 - min(age_minutes / (7 * 24 * 60), 1.0)) * 15
-    size_penalty = min(size / (100 * 1024**3), 1.0) * 6
+    size_penalty = min(size / (100 * 1024**3), 1.0) * (4.0 + 2.0 * (1.0 - ratio_gap_factor))
+    size_gb = size / 1024**3 if size else 0.0
+    size_efficiency = 0.0
+    if leechers > 0 and size_gb > 0:
+        demand_per_gb = math.log1p(leechers) / math.log1p(max(size_gb, 1.0))
+        size_efficiency = min(max(demand_per_gb, 0.0), 1.0) * 8.0 * ratio_gap_factor
     hr_penalty = 20.0 if hit_and_run else 0.0
     contributions = {
         "promotion": round(promotion, 2),
@@ -224,6 +246,7 @@ def candidate_score(candidate: Any) -> CandidateDecision:
         "scarcity": round(scarcity, 2),
         "freshness": round(freshness, 2),
         "size": round(-size_penalty, 2),
+        "size_efficiency": round(size_efficiency, 2),
         "hr_risk": round(-hr_penalty, 2),
     }
     score = max(0.0, min(100.0, 25.0 + sum(contributions.values())))
@@ -251,11 +274,17 @@ def rank_selection_candidates(
     *,
     min_score: float = 25.0,
     max_count: int = 5,
+    share_ratio_gap: float = 0.0,
+    share_ratio_target: float = 2.0,
 ) -> tuple[RankedCandidate, ...]:
     """按智能选种分数排序并限制本轮新增数量。"""
     ranked = []
     for candidate in candidates:
-        decision = candidate_score(candidate)
+        decision = candidate_score(
+            candidate,
+            share_ratio_gap=share_ratio_gap,
+            share_ratio_target=share_ratio_target,
+        )
         if decision.score < min_score:
             decision = CandidateDecision(
                 decision.score,
@@ -276,6 +305,37 @@ def rank_selection_candidates(
     return tuple(ranked[: max(int(max_count), 1)])
 
 
+def adaptive_selection_policy(
+    base_count: int,
+    base_min_score: float,
+    current_ratio: Optional[float],
+    target_ratio: Optional[float],
+) -> tuple[int, float, float]:
+    """按站点分享率缺口返回本轮新增上限、最低分和缺口。
+
+    这是防止刷流任务在低分享率时不够积极、接近目标时又继续堆积的
+    滞后控制：分享率越低，允许的新增越多且评分门槛越宽；接近目标时
+    自动收紧。没有站点统计时保持原配置，不绕过站点数据等待保护。
+    """
+    count = max(int(base_count or 1), 1)
+    minimum = max(float(base_min_score or 0.0), 0.0)
+    target = _positive(target_ratio)
+    current = _number(current_ratio, -1.0)
+    if target <= 0 or current < 0:
+        return count, minimum, 0.0
+    if current >= target:
+        return 1, min(100.0, minimum + 10.0), 0.0
+
+    gap = max(target - current, 0.0)
+    if gap >= max(1.0, target * 0.5):
+        return count, max(20.0, minimum - 5.0), gap
+    if gap >= target * 0.25:
+        return max(3, math.ceil(count * 0.6)), minimum, gap
+    if gap >= target * 0.10:
+        return max(2, math.ceil(count * 0.4)), min(100.0, minimum + 5.0), gap
+    return 1, min(100.0, minimum + 10.0), gap
+
+
 def _history_for(torrent_hash: str, history: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     rows = [row for row in history if str(row.get("hash", "")) == torrent_hash]
     rows.sort(key=lambda row: _number(row.get("at")), reverse=True)
@@ -285,6 +345,9 @@ def _history_for(torrent_hash: str, history: Sequence[Mapping[str, Any]]) -> lis
 def retention_score(
     observation: TorrentObservation,
     history: Sequence[Mapping[str, Any]] = (),
+    *,
+    ratio_target: float = 2.0,
+    ratio_weight: float = 18.0,
 ) -> tuple[float, dict[str, float]]:
     """计算 0-100 的保留价值分数，并返回各信号贡献。
 
@@ -301,7 +364,10 @@ def retention_score(
     if observation.availability and observation.availability < 1.0:
         scarcity_signal = min(30.0, scarcity_signal + 8.0)
 
-    ratio_signal = min(observation.ratio / 2.0, 1.0) * 8
+    effective_ratio_target = max(_positive(ratio_target, 2.0), 1.0)
+    ratio_signal = min(observation.ratio / effective_ratio_target, 1.0) * max(
+        0.0, min(_number(ratio_weight, 18.0), 40.0)
+    )
     inactive_penalty = min(observation.inactive_time / (7 * 24 * 3600), 1.0) * 15
     age_penalty = min(observation.seeding_time / (30 * 24 * 3600), 1.0) * 5
     size_penalty = min(observation.total_size / (100 * 1024**3), 1.0) * 5
@@ -350,6 +416,13 @@ def evaluate_candidate(
         return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("missing_min_seed_time",))
     if observation.seeding_time < policy.min_seed_time_hours * 3600:
         return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("min_seed_time",))
+    if policy.protect_active_demand and max(observation.active_peers, observation.leechers) > 0:
+        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("active_demand",))
+    if (
+        policy.smart_cold_inactive_minutes > 0
+        and observation.inactive_time < policy.smart_cold_inactive_minutes * 60
+    ):
+        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("smart_cold_cooldown",))
     if policy.min_inactive_minutes > 0 and observation.inactive_time < policy.min_inactive_minutes * 60:
         return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("min_inactive_time",))
     if policy.min_ratio > 0 and observation.ratio < policy.min_ratio:
@@ -362,7 +435,12 @@ def evaluate_candidate(
     if policy.required_conditions and not legacy_conditions_met:
         return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("required_condition",))
 
-    score, contributions = retention_score(observation, history)
+    score, contributions = retention_score(
+        observation,
+        history,
+        ratio_target=policy.ratio_target,
+        ratio_weight=policy.ratio_weight,
+    )
     cutoff = max(0.0, policy.score_threshold - max(policy.score_margin, 0.0))
     if score <= cutoff:
         return DecisionResult(observation.torrent_hash, "candidate", score, ("low_retention_value",), contributions)

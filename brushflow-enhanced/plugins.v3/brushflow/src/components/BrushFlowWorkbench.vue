@@ -616,8 +616,8 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     <div v-if="taskConfig.site_ratio_control"><dt>站点分享率</dt><dd>{{ formatSiteRatio(selectedTask.site_ratio) }} / {{ Number(taskConfig.site_ratio_target || 0).toFixed(2) }}</dd></div>
                     <div><dt>选种来源</dt><dd>{{ taskConfig.rss_support ? 'RSS' : '站点列表页' }}</dd></div>
                     <div><dt>促销要求</dt><dd>{{ taskConfig.freeleech === '2xfree' ? '2X 免费' : taskConfig.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
-                    <div><dt>智能选种</dt><dd>{{ taskConfig.smart_selection_enabled ? `开启 · 每轮最多 ${taskConfig.smart_selection_max_add_per_run || 5} 个` : '关闭' }}</dd></div>
-                    <div><dt>删种策略</dt><dd>{{ taskConfig.smart_enabled ? `智能实际执行 · 阈值 ${taskConfig.smart_score_threshold || 40}` : taskConfig.proxy_delete ? `动态 ${taskConfig.delete_min_size || '-'}-${taskConfig.delete_max_size || '-'} GB` : (taskConfig.delete_condition_mode === 'all' ? '满足全部条件' : '满足任一条件') }}</dd></div>
+                    <div><dt>智能选种</dt><dd>{{ taskConfig.smart_selection_enabled ? `开启 · ${taskConfig.smart_adaptive_enabled ? '缺口自适应 · ' : ''}每轮最多 ${taskConfig.smart_selection_max_add_per_run || 5} 个` : '关闭' }}</dd></div>
+                    <div><dt>删种策略</dt><dd>{{ taskConfig.smart_enabled ? `智能实际执行 · 分享率权重 ${taskConfig.smart_ratio_weight || 18} · 阈值 ${taskConfig.smart_score_threshold || 40}` : taskConfig.proxy_delete ? `动态 ${taskConfig.delete_min_size || '-'}-${taskConfig.delete_max_size || '-'} GB` : (taskConfig.delete_condition_mode === 'all' ? '满足全部条件' : '满足任一条件') }}</dd></div>
                     <div><dt>最少保种</dt><dd>{{ taskConfig.min_seed_time ? `${taskConfig.min_seed_time} 小时` : '未设置' }}</dd></div>
                   </dl>
                 </VSheet>

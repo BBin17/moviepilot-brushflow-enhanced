@@ -37,7 +37,13 @@ from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
 
 from .models import BrushFlowSettingsPayload, BrushTaskPayload, BrushTaskStatePayload
-from .decision import SmartPolicy, TorrentObservation, rank_selection_candidates, select_deletions
+from .decision import (
+    SmartPolicy,
+    TorrentObservation,
+    adaptive_selection_policy,
+    rank_selection_candidates,
+    select_deletions,
+)
 
 
 TASK_CONFIG_FIELDS = (
@@ -74,10 +80,15 @@ TASK_CONFIG_FIELDS = (
     "min_inactivetime",
     "smart_enabled",
     "smart_selection_enabled",
+    "smart_adaptive_enabled",
+    "smart_selection_relax_filters",
     "smart_selection_min_score",
     "smart_selection_max_add_per_run",
     "smart_min_ratio",
     "smart_min_uploaded",
+    "smart_ratio_weight",
+    "smart_cold_inactive_minutes",
+    "smart_protect_active_demand",
     "smart_score_threshold",
     "smart_score_margin",
     "smart_max_delete_per_run",
@@ -195,6 +206,10 @@ class BrushTaskConfig:
         self.smart_selection_enabled = bool(
             config.get("smart_selection_enabled", self.smart_enabled)
         )
+        self.smart_adaptive_enabled = bool(config.get("smart_adaptive_enabled", True))
+        self.smart_selection_relax_filters = bool(
+            config.get("smart_selection_relax_filters", True)
+        )
         smart_selection_min_score = self._parse_number(
             config.get("smart_selection_min_score", 25)
         )
@@ -206,6 +221,17 @@ class BrushTaskConfig:
         )
         self.smart_min_ratio = self._parse_number(config.get("smart_min_ratio", 0)) or 0
         self.smart_min_uploaded = self._parse_number(config.get("smart_min_uploaded"))
+        smart_ratio_weight = self._parse_number(config.get("smart_ratio_weight", 18))
+        self.smart_ratio_weight = 18 if smart_ratio_weight is None else smart_ratio_weight
+        smart_cold_inactive_minutes = self._parse_number(
+            config.get("smart_cold_inactive_minutes", 360)
+        )
+        self.smart_cold_inactive_minutes = (
+            360 if smart_cold_inactive_minutes is None else smart_cold_inactive_minutes
+        )
+        self.smart_protect_active_demand = bool(
+            config.get("smart_protect_active_demand", True)
+        )
         smart_score_threshold = self._parse_number(config.get("smart_score_threshold", 40))
         self.smart_score_threshold = 40 if smart_score_threshold is None else smart_score_threshold
         self.smart_score_margin = self._parse_number(config.get("smart_score_margin", 0)) or 0
@@ -289,9 +315,9 @@ class BrushFlow(_PluginBase):
     """
 
     plugin_name = "站点刷流增强版"
-    plugin_desc = "完整保留站点刷流能力，增加智能选种、硬安全线、可解释智能删种、容量上下阈值、审计与限额。"
+    plugin_desc = "完整保留站点刷流能力，增加分享率缺口自适应选种、活跃需求保护、可解释智能删种、容量上下阈值、审计与限额。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "7.0.0"
+    plugin_version = "7.1.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -1254,6 +1280,8 @@ class BrushFlow(_PluginBase):
             "enabled": bool(task.site_ratio_control),
             "target": task.site_ratio_target,
             "current": None,
+            "gap": None,
+            "progress": None,
             "available": False,
             "unlimited": False,
             "reached": False,
@@ -1287,6 +1315,12 @@ class BrushFlow(_PluginBase):
                 "updated_at": " ".join(value for value in (updated_day, updated_time) if value) or None,
             }
         )
+        if not unlimited:
+            status["gap"] = max(float(task.site_ratio_target) - float(ratio), 0.0)
+            status["progress"] = min(float(ratio) / float(task.site_ratio_target), 1.0)
+        else:
+            status["gap"] = 0.0
+            status["progress"] = 1.0
         return status
 
     def _evaluate_site_ratio_control(
@@ -1434,6 +1468,7 @@ class BrushFlow(_PluginBase):
             subscribe_titles=subscribe_titles,
             report=report,
             global_seeding_size=global_seeding_size,
+            ratio_status=ratio_status,
         )
         self._save_current_task_data("torrents", torrent_tasks)
         self._recalculate_statistics(task.id)
@@ -1469,6 +1504,7 @@ class BrushFlow(_PluginBase):
         subscribe_titles: Set[str],
         report: dict,
         global_seeding_size: float,
+        ratio_status: Optional[Dict[str, Any]] = None,
     ) -> None:
         """获取当前任务站点候选并逐项执行保留的选种规则"""
         task = self._get_task_config()
@@ -1486,10 +1522,32 @@ class BrushFlow(_PluginBase):
                 report["reason_counts"]["命中订阅内容"] = report["subscription_excluded"]
         report["candidate_count"] = len(torrents)
         if task.smart_selection_enabled or task.smart_enabled:
+            ratio_current = (ratio_status or {}).get("current")
+            ratio_target = (ratio_status or {}).get("target") or task.site_ratio_target or 2.0
+            selection_limit = int(task.smart_selection_max_add_per_run or 5)
+            selection_min_score = float(task.smart_selection_min_score or 25)
+            ratio_gap = 0.0
+            if task.smart_adaptive_enabled and ratio_status and ratio_status.get("available"):
+                selection_limit, selection_min_score, ratio_gap = adaptive_selection_policy(
+                    selection_limit,
+                    selection_min_score,
+                    ratio_current,
+                    ratio_target,
+                )
+            report["smart_selection_policy"] = {
+                "current_ratio": ratio_current,
+                "target_ratio": ratio_target,
+                "gap": ratio_gap,
+                "max_add": selection_limit,
+                "min_score": selection_min_score,
+                "adaptive": bool(task.smart_adaptive_enabled),
+            }
             ranked_candidates = rank_selection_candidates(
                 torrents,
-                min_score=float(task.smart_selection_min_score or 25),
-                max_count=int(task.smart_selection_max_add_per_run or 5),
+                min_score=selection_min_score,
+                max_count=selection_limit,
+                share_ratio_gap=ratio_gap,
+                share_ratio_target=ratio_target,
             )
             report["smart_selection_count"] = len(ranked_candidates)
             report["smart_selection_scores"] = [
@@ -1597,6 +1655,8 @@ class BrushFlow(_PluginBase):
             "active_count": 0,
             "reason_counts": Counter(),
             "added_titles": [],
+            "smart_selection_policy": None,
+            "smart_selection_count": 0,
         }
 
     @staticmethod
@@ -1710,13 +1770,14 @@ class BrushFlow(_PluginBase):
             )
             if exclude_match:
                 return False, "符合排除规则"
-        if task.size:
+        smart_relaxed = task.smart_selection_enabled and task.smart_selection_relax_filters
+        if task.size and not smart_relaxed:
             size_range = [float(value) * 1024 ** 3 for value in task.size.split("-")]
             if len(size_range) == 1 and torrent.size < size_range[0]:
                 return False, "种子大小低于下限"
             if len(size_range) > 1 and not size_range[0] <= torrent.size <= size_range[1]:
                 return False, "种子大小不在范围内"
-        if task.seeder:
+        if task.seeder and not smart_relaxed:
             seeder_range = [float(value) for value in task.seeder.split("-")]
             seeders = torrent.seeders or 0
             if len(seeder_range) == 1 and seeders > seeder_range[0]:
@@ -2064,6 +2125,8 @@ class BrushFlow(_PluginBase):
             "hit_and_run": "H&R 保护",
             "missing_min_seed_time": "未配置站点最低保种时长",
             "min_seed_time": "尚未达到站点最低保种时长",
+            "active_demand": "当前存在下载需求",
+            "smart_cold_cooldown": "尚未达到智能冷种保护时间",
             "min_inactive_time": "尚未达到最低未活动时间",
             "min_ratio": "尚未达到最低分享率",
             "min_uploaded": "尚未达到最低上传量",
@@ -2085,8 +2148,12 @@ class BrushFlow(_PluginBase):
         return SmartPolicy(
             min_seed_time_hours=float(task.min_seed_time or 0),
             min_inactive_minutes=float(task.min_inactivetime or 0),
+            smart_cold_inactive_minutes=float(task.smart_cold_inactive_minutes or 0),
+            protect_active_demand=bool(task.smart_protect_active_demand),
             min_ratio=float(task.smart_min_ratio or 0),
             min_uploaded_gb=float(task.smart_min_uploaded or 0),
+            ratio_target=float(task.site_ratio_target or 2.0),
+            ratio_weight=float(task.smart_ratio_weight or 18),
             score_threshold=float(task.smart_score_threshold or 40),
             score_margin=float(task.smart_score_margin or 0),
             max_delete_per_run=int(task.smart_max_delete_per_run or 3),
