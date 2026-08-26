@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -248,6 +248,10 @@ class BrushFlowSettingsPayload(BaseModel):
     global_delete_min_size: Optional[float] = Field(None, gt=0)
     global_delete_max_size: Optional[float] = Field(None, gt=0)
     global_delete_size_range: Optional[str] = None
+    signin_enabled: bool = False
+    signin_notify: bool = True
+    signin_cron: Optional[str] = "17 7 * * *"
+    signin_sites: List[int] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -286,6 +290,35 @@ class BrushFlowSettingsPayload(BaseModel):
             return None
         cleaned = str(value).strip()
         return cleaned or None
+
+    @field_validator("signin_cron", mode="before")
+    @classmethod
+    def normalize_signin_cron(cls, value):
+        """清理签到 CRON；留空时使用每天 07:17 的低频默认计划。"""
+        if value is None:
+            return "17 7 * * *"
+        cleaned = str(value).strip()
+        return cleaned or "17 7 * * *"
+
+    @field_validator("signin_sites", mode="before")
+    @classmethod
+    def normalize_signin_sites(cls, value):
+        """兼容旧配置中以字符串保存的站点 ID 列表。"""
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()]
+        if not isinstance(value, (list, tuple, set)):
+            return []
+        result = []
+        for item in value:
+            try:
+                site_id = int(item)
+            except (TypeError, ValueError):
+                continue
+            if site_id > 0 and site_id not in result:
+                result.append(site_id)
+        return result
 
     @field_validator("global_delete_size_range")
     @classmethod

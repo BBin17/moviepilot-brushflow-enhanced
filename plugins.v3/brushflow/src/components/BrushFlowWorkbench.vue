@@ -28,6 +28,14 @@ const error = ref('')
 const status = ref({
   enabled: false,
   show_sidebar_nav: true,
+  signin: {
+    enabled: false,
+    notify: true,
+    cron: '17 7 * * *',
+    site_ids: [],
+    site_names: [],
+    last_results: [],
+  },
   summary: {},
   tasks: [],
   options: { sites: [], downloaders: [] },
@@ -53,6 +61,10 @@ const settingsDraft = ref({
   global_delete_min_size: null,
   global_delete_max_size: null,
   global_delete_size_range: null,
+  signin_enabled: false,
+  signin_notify: true,
+  signin_cron: '17 7 * * *',
+  signin_sites: [],
 })
 const hostToast = inject('moviepilot:toast', null)
 let refreshTimer
@@ -128,6 +140,10 @@ async function loadStatus({ preserveSelection = true, loadDetail = true } = {}) 
       global_delete_min_size: status.value.global_delete_min_size ?? null,
       global_delete_max_size: status.value.global_delete_max_size ?? null,
       global_delete_size_range: status.value.global_delete_size_range ?? null,
+      signin_enabled: Boolean(status.value.signin?.enabled),
+      signin_notify: status.value.signin?.notify !== false,
+      signin_cron: status.value.signin?.cron || '17 7 * * *',
+      signin_sites: Array.isArray(status.value.signin?.site_ids) ? [...status.value.signin.site_ids] : [],
     }
     const selectedStillExists = tasks.value.some(item => item.id === selectedTaskId.value)
     if (!preserveSelection || !selectedStillExists) selectedTaskId.value = tasks.value[0]?.id || ''
@@ -257,6 +273,20 @@ async function saveSettings() {
   }
 }
 
+// 手动提交一次站点签到；后端仍按“当天成功则跳过”保护站点请求频率。
+async function runSignin() {
+  saving.value = true
+  try {
+    unwrapResponse(await props.api.post(`${pluginBase.value}/signin/run`, {}))
+    await loadStatus()
+    notify('站点签到已提交')
+  } catch (err) {
+    notify(err?.message || '提交站点签到失败', 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
 // 删除当前没有活跃种子的任务。
 async function confirmDeleteTask() {
   saving.value = true
@@ -375,6 +405,54 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                 hide-details
                 inset
               />
+              <VDivider />
+              <div class="text-subtitle-2">站点自动签到</div>
+              <VSwitch
+                v-model="settingsDraft.signin_enabled"
+                label="启用自动签到"
+                color="primary"
+                hide-details
+                inset
+              />
+              <VSelect
+                v-model="settingsDraft.signin_sites"
+                :items="status.options.sites"
+                label="签到站点"
+                multiple
+                chips
+                closable-chips
+                clearable
+                hint="留空时自动使用已启用刷流任务绑定的站点"
+                persistent-hint
+                hide-details="auto"
+              />
+              <VTextField
+                v-model="settingsDraft.signin_cron"
+                label="签到计划（5位 CRON）"
+                placeholder="17 7 * * *"
+                hint="默认每天 07:17；失败站点下次会重试，成功站点当天跳过"
+                persistent-hint
+                hide-details="auto"
+              />
+              <VSwitch
+                v-model="settingsDraft.signin_notify"
+                label="签到完成发送通知"
+                color="primary"
+                hide-details
+                inset
+              />
+              <VAlert type="info" variant="tonal" density="compact">
+                默认访问 NexusPHP 的 attendance.php。需要答题、验证码或专用 API 的站点会安全跳过，不会盲目提交。
+              </VAlert>
+              <div v-if="status.signin?.last_results?.length" class="text-body-2 settings-menu__signin-results">
+                <div v-for="item in status.signin.last_results" :key="`${item.site_id}-${item.checked_at}`">
+                  <VIcon :icon="item.success ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'" :color="item.success ? 'success' : 'error'" size="16" />
+                  <span>{{ item.site_name }}：{{ item.skipped ? '今日已完成，跳过' : item.message }}</span>
+                </div>
+              </div>
+              <VBtn variant="tonal" color="primary" prepend-icon="mdi-login-variant" :loading="saving" @click="runSignin">
+                立即签到
+              </VBtn>
               <VDivider />
               <VSwitch
                 v-model="settingsDraft.global_proxy_delete"
@@ -971,6 +1049,20 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 
 .brushflow-settings-menu {
   inline-size: min(25rem, calc(100vw - 24px));
+}
+
+.settings-menu__signin-results {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: var(--app-control-radius);
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.settings-menu__signin-results > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .brushflow-loading,

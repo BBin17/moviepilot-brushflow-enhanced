@@ -37,6 +37,7 @@ from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
 
 from .models import BrushFlowSettingsPayload, BrushTaskPayload, BrushTaskStatePayload
+from .signin import signin_site, success_message
 from .decision import (
     SmartPolicy,
     TorrentObservation,
@@ -329,9 +330,9 @@ class BrushFlow(_PluginBase):
     """
 
     plugin_name = "站点刷流增强版"
-    plugin_desc = "完整保留站点刷流能力，增加分享率缺口自适应选种、活跃需求保护、无效 Tracker 做种清理、可解释智能删种、容量上下阈值、审计与限额。"
+    plugin_desc = "完整保留站点刷流能力，增加智能选种删种、无效 Tracker 做种清理、站点自动签到、容量阈值、审计与限额。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "7.2.0"
+    plugin_version = "7.3.0"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
@@ -341,6 +342,7 @@ class BrushFlow(_PluginBase):
     DATA_SCHEMA_VERSION = 3
     MAX_RUN_HISTORY = 50
     GLOBAL_BRUSH_TAG = "刷流"
+    SIGNIN_DATA_KEY = "signin_history"
     TASK_DATA_NAMES = (
         "torrents",
         "archived",
@@ -366,6 +368,11 @@ class BrushFlow(_PluginBase):
         self._subscribe_infos: Dict[str, List[str]] = {}
         self._enabled = bool(raw_config.get("enabled", False))
         self._show_sidebar_nav = bool(raw_config.get("show_sidebar_nav", True))
+        self._signin_enabled = bool(raw_config.get("signin_enabled", False))
+        self._signin_notify = bool(raw_config.get("signin_notify", True))
+        self._signin_cron = str(raw_config.get("signin_cron") or "17 7 * * *").strip()
+        self._signin_sites = self._normalize_site_ids(raw_config.get("signin_sites"))
+        self._signin_lock = threading.Lock()
 
         legacy_config = not isinstance(raw_config.get("tasks"), list) and bool(raw_config.get("brushsites"))
         for field in GLOBAL_LIMIT_FIELDS:
@@ -529,6 +536,13 @@ class BrushFlow(_PluginBase):
                 "auth": "bear",
                 "summary": "清除单个刷流任务数据",
             },
+            {
+                "path": "/signin/run",
+                "endpoint": self.run_signin,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "立即执行站点签到",
+            },
         ]
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -555,7 +569,7 @@ class BrushFlow(_PluginBase):
         )
 
     def get_service(self) -> List[Dict[str, Any]]:
-        """为每个启用任务注册独立的刷流刷新和状态检查服务"""
+        """为刷流、检查、促销和站点签到注册宿主公共服务"""
         if not self.get_state():
             return []
         services: List[Dict[str, Any]] = []
@@ -605,6 +619,23 @@ class BrushFlow(_PluginBase):
                         "func_kwargs": {"task_id": task.id},
                     }
                 )
+        if self._signin_enabled:
+            try:
+                signin_trigger: Union[str, CronTrigger] = CronTrigger.from_crontab(
+                    self._signin_cron,
+                    timezone=settings.TZ,
+                )
+                services.append(
+                    {
+                        "id": "BrushFlow_SignIn",
+                        "name": "站点自动签到",
+                        "trigger": signin_trigger,
+                        "func": self.sign_in,
+                        "kwargs": {},
+                    }
+                )
+            except (TypeError, ValueError) as err:
+                logger.error(f"站点自动签到 CRON 表达式无效：{str(err)}")
         return services
 
     def stop_service(self) -> None:
@@ -639,10 +670,19 @@ class BrushFlow(_PluginBase):
         return schemas.Response(success=True, data=self._build_status_data())
 
     def update_settings(self, payload: BrushFlowSettingsPayload) -> schemas.Response:
-        """更新插件全局开关并刷新宿主任务调度"""
+        """更新插件全局开关、自动签到配置并刷新宿主任务调度"""
+        signin_cron = str(payload.signin_cron or "17 7 * * *").strip()
+        try:
+            CronTrigger.from_crontab(signin_cron, timezone=settings.TZ)
+        except (TypeError, ValueError) as err:
+            return schemas.Response(success=False, message=f"站点签到 CRON 无效：{str(err)}")
         global_dynamic_delete_was_enabled = self._global_dynamic_delete_enabled()
         self._enabled = payload.enabled
         self._show_sidebar_nav = payload.show_sidebar_nav
+        self._signin_enabled = payload.signin_enabled
+        self._signin_notify = payload.signin_notify
+        self._signin_cron = signin_cron
+        self._signin_sites = self._normalize_site_ids(payload.signin_sites)
         for field in GLOBAL_LIMIT_FIELDS:
             setattr(self, f"_{field}", getattr(payload, field))
         for field in GLOBAL_DYNAMIC_DELETE_FIELDS:
@@ -743,6 +783,15 @@ class BrushFlow(_PluginBase):
         """异步提交单个任务的立即状态检查"""
         return self._submit_task_operation(task_id, "check")
 
+    def run_signin(self) -> schemas.Response:
+        """异步执行一次站点签到；手动执行不要求自动签到开关已打开。"""
+        try:
+            ThreadHelper().submit(self.sign_in, True)
+            return schemas.Response(success=True, message="站点签到已提交")
+        except Exception as err:
+            logger.error(f"提交站点签到失败：{str(err)}")
+            return schemas.Response(success=False, message=f"提交站点签到失败：{str(err)}")
+
     def clear_task_data(self, task_id: str) -> schemas.Response:
         """清除单个任务的统计、历史与托管记录"""
         if task_id not in self._task_configs:
@@ -766,6 +815,10 @@ class BrushFlow(_PluginBase):
             "schema_version": self.DATA_SCHEMA_VERSION,
             "enabled": bool(getattr(self, "_enabled", False)),
             "show_sidebar_nav": bool(getattr(self, "_show_sidebar_nav", True)),
+            "signin_enabled": bool(getattr(self, "_signin_enabled", False)),
+            "signin_notify": bool(getattr(self, "_signin_notify", True)),
+            "signin_cron": getattr(self, "_signin_cron", "17 7 * * *"),
+            "signin_sites": list(getattr(self, "_signin_sites", [])),
             "tasks": [task.to_dict() for task in getattr(self, "_task_configs", {}).values()],
         }
         config.update({field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS})
@@ -789,6 +842,146 @@ class BrushFlow(_PluginBase):
             getattr(self, "_global_proxy_delete", False)
             and getattr(self, "_global_delete_size_range", None)
         )
+
+    @staticmethod
+    def _normalize_site_ids(value: Any) -> List[int]:
+        """标准化签到站点 ID，并去重、忽略无效值。"""
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()]
+        if not isinstance(value, (list, tuple, set)):
+            return []
+        site_ids: List[int] = []
+        for item in value:
+            try:
+                site_id = int(item)
+            except (TypeError, ValueError):
+                continue
+            if site_id > 0 and site_id not in site_ids:
+                site_ids.append(site_id)
+        return site_ids
+
+    def _signin_site_rows(self) -> List[dict]:
+        """返回当前配置可用的私有站点信息；空选择时仅使用刷流任务站点。"""
+        indexers = [
+            item
+            for item in SitesHelper().get_indexers()
+            if isinstance(item, dict) and not item.get("public")
+        ]
+        by_id = {int(item.get("id")): item for item in indexers if item.get("id")}
+        selected_ids = list(self._signin_sites)
+        if not selected_ids:
+            selected_ids = list(
+                dict.fromkeys(
+                    task.site_id
+                    for task in self._task_configs.values()
+                    if task.enabled and task.site_id
+                )
+            )
+        rows: List[dict] = []
+        for site_id in selected_ids:
+            site = by_id.get(int(site_id))
+            if not site:
+                continue
+            row = dict(site)
+            if not row.get("url") and row.get("domain"):
+                row["url"] = f"https://{str(row['domain']).strip('/') }"
+            rows.append(row)
+        return rows
+
+    @staticmethod
+    def _signin_success(message: str) -> bool:
+        """把签到模块结果统一判定为当天完成。"""
+        return success_message(message)
+
+    def _signin_history(self) -> Dict[str, dict]:
+        """读取签到历史，并兼容早期空值或损坏数据。"""
+        history = self.get_data(self.SIGNIN_DATA_KEY) or {}
+        return history if isinstance(history, dict) else {}
+
+    def _build_signin_status(self) -> Dict[str, Any]:
+        """构造自动签到配置和最近结果，供工作台展示。"""
+        history = self._signin_history()
+        today_key = datetime.now().strftime("%Y-%m-%d")
+        today = history.get(today_key) or {}
+        rows = self._signin_site_rows()
+        return {
+            "enabled": bool(getattr(self, "_signin_enabled", False)),
+            "notify": bool(getattr(self, "_signin_notify", True)),
+            "cron": getattr(self, "_signin_cron", "17 7 * * *"),
+            "site_ids": list(getattr(self, "_signin_sites", [])),
+            "site_names": [row.get("name") for row in rows],
+            "today": today.get("results") or [],
+            "last_run_at": today.get("run_at"),
+            "last_results": today.get("results") or [],
+        }
+
+    def sign_in(self, force: bool = False) -> None:
+        """串行执行站点签到；成功站点当天跳过，失败站点下次自动重试。"""
+        if not force and not getattr(self, "_signin_enabled", False):
+            return
+        signin_lock = getattr(self, "_signin_lock", None)
+        if signin_lock is None:
+            self._signin_lock = threading.Lock()
+            signin_lock = self._signin_lock
+        if not signin_lock.acquire(blocking=False):
+            logger.info("站点自动签到已有任务执行中，本轮跳过")
+            return
+        try:
+            sites = self._signin_site_rows()
+            if not sites:
+                logger.info("站点自动签到没有可执行的私有站点")
+                return
+            today_key = datetime.now().strftime("%Y-%m-%d")
+            history = self._signin_history()
+            day_record = history.get(today_key) or {"run_at": None, "results": []}
+            previous = {
+                str(item.get("site_id")): item
+                for item in day_record.get("results") or []
+                if isinstance(item, dict)
+            }
+            results: List[dict] = []
+            for site in sites:
+                site_id = int(site.get("id"))
+                old = previous.get(str(site_id))
+                if old and old.get("success"):
+                    results.append({**old, "skipped": True})
+                    continue
+                success, message = signin_site(site)
+                results.append(
+                    {
+                        "site_id": site_id,
+                        "site_name": site.get("name") or str(site_id),
+                        "success": bool(success),
+                        "message": message,
+                        "checked_at": self._now_iso(),
+                        "skipped": False,
+                    }
+                )
+            day_record = {"run_at": self._now_iso(), "results": results}
+            history[today_key] = day_record
+            for key in sorted(history)[:-31]:
+                history.pop(key, None)
+            self.save_data(self.SIGNIN_DATA_KEY, history)
+            logger.info(
+                f"站点自动签到完成：成功 "
+                f"{sum(1 for item in results if item.get('success'))}/{len(results)}"
+            )
+            if self._signin_notify:
+                message = "\n".join(
+                    f"{item.get('site_name')}: {item.get('message')}"
+                    for item in results
+                )
+                self.post_message(
+                    mtype=NotificationType.SiteMessage,
+                    title="【站点自动签到】",
+                    text=message or "没有需要签到的站点",
+                )
+        except Exception as err:
+            logger.error(f"站点自动签到执行失败：{str(err)}")
+        finally:
+            signin_lock.release()
 
     @staticmethod
     def _validate_global_dynamic_delete_config(
@@ -1217,6 +1410,7 @@ class BrushFlow(_PluginBase):
         return {
             "enabled": self.get_state(),
             "show_sidebar_nav": self._show_sidebar_nav,
+            "signin": self._build_signin_status(),
             **{field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS},
             **{field: getattr(self, f"_{field}", None) for field in GLOBAL_DYNAMIC_DELETE_FIELDS},
             "summary": aggregate,

@@ -172,6 +172,16 @@ export function normalizeSettings(settings = {}) {
     && result.global_delete_max_size
     ? `${result.global_delete_min_size}-${result.global_delete_max_size}`
     : null
+  result.signin_enabled = Boolean(result.signin_enabled)
+  result.signin_notify = result.signin_notify !== false
+  result.signin_cron = String(result.signin_cron || '17 7 * * *').trim() || '17 7 * * *'
+  result.signin_sites = Array.from(
+    new Set(
+      (Array.isArray(result.signin_sites) ? result.signin_sites : [])
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value > 0),
+    ),
+  )
   return result
 }
 
