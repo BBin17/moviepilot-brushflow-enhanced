@@ -57,6 +57,21 @@ from .learning import (
     recent_yield_metrics,
     update_learning_state,
 )
+from .download_health import (
+    HEALTH_COMPLETED,
+    HEALTH_CHECKING,
+    HEALTH_DOWNLOADING,
+    HEALTH_ERROR,
+    HEALTH_PAUSED,
+    HEALTH_QUEUED,
+    HEALTH_SLOW,
+    HEALTH_STALLED,
+    HEALTH_UNKNOWN,
+    append_download_sample,
+    assess_download_health,
+    health_label,
+    policy_for_profile,
+)
 from .migration import migrate_task_rows_v8
 
 
@@ -481,6 +496,7 @@ class BrushFlow(_PluginBase):
         "learning_state",
         "decision_audit",
         "strategy_state",
+        "download_health",
         "invalid_seed_history",
         "invalid_seed_plan",
     )
@@ -1895,6 +1911,7 @@ class BrushFlow(_PluginBase):
         latest_deletion = next((row for row in reversed(audit) if row.get("kind") == "deletion"), None)
         torrents = self._get_task_data(task_id, "torrents") or {}
         current_size = self.__calculate_seeding_torrents_size(torrents)
+        download_health = self._build_download_health_summary(torrents)
         uploaded_24h = 0.0
         snapshots = learning_state.get("snapshots", []) if isinstance(learning_state, dict) else []
         previous_by_hash: Dict[str, dict] = {}
@@ -1939,7 +1956,7 @@ class BrushFlow(_PluginBase):
         false_positive_count = sum(1 for row in candidate_rows if row.get("recovered"))
         state.update(
             {
-                "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else "8.0.0",
+                "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else __version__,
                 "profile": task.smart_profile,
                 "mode": mode,
                 "mode_label": mode_label,
@@ -1961,6 +1978,7 @@ class BrushFlow(_PluginBase):
                 "uploaded_gb_per_day": round(uploaded_24h / 1024**3, 3),
                 "unit_capacity_yield_per_day": round(uploaded_24h / current_size, 6) if current_size else 0.0,
                 "actual_freed_bytes_24h": actual_freed_24h,
+                "download_health": download_health,
                 "selection_explanations": (latest_selection or {}).get("decisions", []),
                 "deletion_explanations": (latest_deletion or {}).get("selected", []),
                 "pending_candidates": candidate_rows[:50],
@@ -2672,6 +2690,14 @@ class BrushFlow(_PluginBase):
             return
         check_torrents = [seeding_torrents_dict[item] for item in check_hashes if item in seeding_torrents_dict]
         self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
+        health_summary = self._build_download_health_summary(torrent_tasks)
+        report["download_health"] = health_summary
+        if health_summary["stalled_count"] or health_summary["slow_count"]:
+            logger.warning(
+                f"刷流任务 [{task.name}] 下载健康："
+                f"{health_summary['stalled_count']} 个长时间无进度，"
+                f"{health_summary['slow_count']} 个异常低速；未完成种子仍受硬保护"
+            )
         self.__update_undeleted_torrents_missing_in_downloader(torrent_tasks, check_hashes, seeding_torrents)
         filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
         invalid_delete_hashes: List[str] = []
@@ -2805,21 +2831,144 @@ class BrushFlow(_PluginBase):
         )
 
     def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> None:
-        """更新当前任务种子的上下传、分享率和做种时间"""
+        """更新当前任务种子的上下传、分享率、做种时间和下载健康"""
+        task = self._get_task_config()
+        health_policy = policy_for_profile(task.smart_profile if task else "balanced")
+        health_store = self._current_task_data("download_health", {})
+        if not isinstance(health_store, dict):
+            health_store = {}
+        now = time.time()
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
             torrent_task = torrent_tasks.get(torrent_hash)
             if not torrent_task:
                 continue
             torrent_info = self.__get_torrent_info(torrent)
+            total_size = float(torrent_info.get("total_size") or 0)
+            completed_bytes = float(
+                torrent_info.get("completed")
+                if torrent_info.get("completed") is not None
+                else torrent_info.get("downloaded") or 0
+            )
+            is_completed = bool(total_size > 0 and completed_bytes >= total_size)
+            current_sample = {
+                "at": now,
+                "downloaded": completed_bytes,
+                "total_size": total_size,
+                "download_speed": torrent_info.get("download_speed", 0),
+                "active_peers": torrent_info.get("active_peers"),
+                "availability": torrent_info.get("availability"),
+                "is_paused": torrent_info.get("is_paused", False),
+                "downloader_state": torrent_info.get("downloader_state", ""),
+                "completed": is_completed,
+            }
+            health_record = health_store.get(torrent_hash)
+            if not isinstance(health_record, dict):
+                health_record = {}
+            samples = append_download_sample(
+                health_record.get("samples", []),
+                current_sample,
+                now=now,
+                policy=health_policy,
+            )
+            health = assess_download_health(samples, current_sample, policy=health_policy, now=now)
+            previous_state = health_record.get("state")
+            state_since = (
+                float(health_record.get("state_since") or now)
+                if previous_state == health.get("state")
+                else now
+            )
+            health_store[torrent_hash] = {
+                "hash": torrent_hash,
+                "state": health.get("state", HEALTH_UNKNOWN),
+                "reason": health.get("reason", "insufficient_history"),
+                "state_since": state_since,
+                "updated_at": now,
+                "samples": samples,
+            }
             torrent_task.update(
                 {
                     "downloaded": torrent_info.get("downloaded"),
                     "uploaded": torrent_info.get("uploaded"),
                     "ratio": torrent_info.get("ratio"),
                     "seeding_time": torrent_info.get("seeding_time"),
+                    "download_speed": torrent_info.get("download_speed", 0),
+                    "download_completed_bytes": completed_bytes,
+                    "download_health": health.get("state", HEALTH_UNKNOWN),
+                    "download_health_label": health_label(health.get("state", HEALTH_UNKNOWN)),
+                    "download_health_reason": health.get("reason", "insufficient_history"),
+                    "download_health_since": state_since,
+                    "download_health_avg_kbps": health.get("avg_download_speed_kbps", 0),
+                    "download_health_progress_delta": health.get("progress_delta", 0),
+                    "download_health_checked_at": now,
                 }
             )
+        self._save_current_task_data("download_health", health_store)
+
+    @staticmethod
+    def _build_download_health_summary(torrent_tasks: Dict[str, dict]) -> Dict[str, Any]:
+        """从任务记录汇总卡住、低速和观察中的未完成下载。"""
+        active_rows = [
+            (str(torrent_hash), row)
+            for torrent_hash, row in torrent_tasks.items()
+            if isinstance(row, dict) and not row.get("deleted")
+        ]
+        stalled = [row for _, row in active_rows if row.get("download_health") == HEALTH_STALLED]
+        slow = [row for _, row in active_rows if row.get("download_health") == HEALTH_SLOW]
+        items = sorted(
+            [
+                (torrent_hash, row)
+                for torrent_hash, row in active_rows
+                if row.get("download_health") in {
+                    HEALTH_STALLED,
+                    HEALTH_SLOW,
+                    HEALTH_QUEUED,
+                    HEALTH_ERROR,
+                }
+            ],
+            key=lambda item: (
+                {
+                    HEALTH_STALLED: 0,
+                    HEALTH_SLOW: 1,
+                    HEALTH_ERROR: 2,
+                    HEALTH_QUEUED: 3,
+                }.get(item[1].get("download_health"), 4),
+                -float(item[1].get("download_health_since") or 0),
+            ),
+        )
+        return {
+            "stalled_count": len(stalled),
+            "slow_count": len(slow),
+            "queued_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_QUEUED),
+            "checking_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_CHECKING),
+            "error_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_ERROR),
+            "observed_count": sum(
+                1
+                for _, row in active_rows
+                if row.get("download_health") in {
+                    HEALTH_UNKNOWN,
+                    HEALTH_DOWNLOADING,
+                    HEALTH_PAUSED,
+                    HEALTH_QUEUED,
+                    HEALTH_CHECKING,
+                    HEALTH_ERROR,
+                }
+            ),
+            "items": [
+                {
+                    "hash": torrent_hash,
+                    "title": row.get("title"),
+                    "state": row.get("download_health"),
+                    "label": row.get("download_health_label") or health_label(row.get("download_health", HEALTH_UNKNOWN)),
+                    "reason": row.get("download_health_reason"),
+                    "since": row.get("download_health_since"),
+                    "avg_kbps": row.get("download_health_avg_kbps", 0),
+                    "progress_delta": row.get("download_health_progress_delta", 0),
+                    "size": row.get("size", 0),
+                }
+                for torrent_hash, row in items[:20]
+            ],
+        }
 
     def __update_seeding_tasks_based_on_tags(
         self,
@@ -3478,7 +3627,7 @@ class BrushFlow(_PluginBase):
         else:
             mode, mode_label = "active", "自动删除已启用"
         state = {
-            "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else "8.0.0",
+            "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else __version__,
             "profile": task.smart_profile,
             "mode": mode,
             "mode_label": mode_label,
@@ -4320,8 +4469,23 @@ class BrushFlow(_PluginBase):
             ratio = torrent.get("ratio") or 0
             uploaded = torrent.get("uploaded") or 0
             downloaded = torrent.get("downloaded") or 0
-            total_size = torrent.get("total_size") or 0
+            total_size = torrent.get("total_size") or torrent.get("size") or 0
+            completed = torrent.get("completed")
+            if completed is None:
+                progress = torrent.get("progress")
+                completed = (
+                    float(total_size) * float(progress)
+                    if progress is not None and float(progress) <= 1
+                    else downloaded
+                )
             upload_speed = torrent.get("upspeed") or torrent.get("upload_speed") or 0
+            download_speed = torrent.get("dlspeed") or torrent.get("download_speed") or 0
+            downloader_state = str(torrent.get("state") or "").lower()
+            is_paused = (
+                downloader_state in {"paused", "pauseddl", "pausedup", "stopped"}
+                or downloader_state.startswith("paused")
+                or downloader_state.startswith("stopped")
+            )
             tracker_seeders = torrent.get("num_complete")
             if tracker_seeders is None or float(tracker_seeders) < 0:
                 tracker_seeders = torrent.get("seeders")
@@ -4353,6 +4517,11 @@ class BrushFlow(_PluginBase):
             ratio = getattr(torrent, "ratio", 0) or 0
             uploaded = int(downloaded * ratio)
             upload_speed = getattr(torrent, "upload_speed", 0) or getattr(torrent, "upspeed", 0) or 0
+            download_speed = getattr(torrent, "download_speed", 0) or getattr(torrent, "dlspeed", 0) or 0
+            completed = downloaded
+            transmission_status = int(getattr(torrent, "status", 1) or 1)
+            is_paused = transmission_status == 0
+            downloader_state = str(transmission_status)
             seeders = getattr(torrent, "seeders", None)
             leechers = getattr(torrent, "leechers", None)
             active_peers = getattr(torrent, "peers_connected", None)
@@ -4368,8 +4537,10 @@ class BrushFlow(_PluginBase):
             "ratio": ratio,
             "uploaded": uploaded,
             "downloaded": downloaded,
+            "completed": completed,
             "avg_upspeed": avg_upspeed,
             "upload_speed": upload_speed,
+            "download_speed": download_speed,
             "seeders": seeders,
             "leechers": leechers,
             "active_peers": active_peers,
@@ -4381,6 +4552,8 @@ class BrushFlow(_PluginBase):
             "add_on": added_on,
             "tags": tags,
             "tracker": tracker,
+            "is_paused": is_paused,
+            "downloader_state": downloader_state,
         }
 
     def __get_average_bandwidth(

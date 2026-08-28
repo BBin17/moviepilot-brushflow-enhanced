@@ -305,5 +305,6 @@ export function taskStateMeta(state) {
 export function torrentProgress(item) {
   const size = Number(item?.size || 0)
   if (!size) return 0
-  return Math.min(Math.round((Number(item.downloaded || 0) * 100) / size), 100)
+  const completed = item?.download_completed_bytes ?? item?.downloaded ?? 0
+  return Math.min(Math.round((Number(completed || 0) * 100) / size), 100)
 }

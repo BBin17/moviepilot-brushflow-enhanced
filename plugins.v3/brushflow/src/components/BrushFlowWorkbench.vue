@@ -76,6 +76,7 @@ const selectedState = computed(() => taskStateMeta(selectedTask.value?.state))
 const taskConfig = computed(() => taskDetail.value?.task || {})
 const taskRuns = computed(() => taskDetail.value?.runs || [])
 const strategy = computed(() => taskDetail.value?.strategy || selectedTask.value?.strategy || {})
+const downloadHealth = computed(() => strategy.value.download_health || {})
 const latestBrushRun = computed(() => taskRuns.value.find(item => item.kind === 'brush') || null)
 const torrentData = computed(() => taskDetail.value?.torrents || { items: [], total: 0, page: 1, page_size: 50 })
 const totalTorrentPages = computed(() => Math.max(Math.ceil(torrentData.value.total / torrentData.value.page_size), 1))
@@ -369,6 +370,16 @@ async function changeTorrentPage(value) {
 // 根据配置生成当前种子的下一项处理条件摘要。
 function torrentPolicy(item) {
   if (item.deleted) return '已删除'
+  if (item.download_health === 'queued') return '下载健康：下载器排队中'
+  if (item.download_health === 'checking') return '下载健康：下载器正在检查'
+  if (item.download_health === 'error') return '下载健康：下载器报错或缺少文件'
+  if (item.download_health === 'stalled') {
+    return `下载健康：长时间无进度 · ${item.download_health_reason === 'no_download_progress_with_connection' ? '有连接但无增量' : '无下载增量'}`
+  }
+  if (item.download_health === 'slow') {
+    return `下载健康：异常低速 · ${Number(item.download_health_avg_kbps || 0).toFixed(1)} KB/s 有效均速`
+  }
+  if (item.download_health === 'paused') return '下载健康：下载器已暂停'
   if (item.hit_and_run && taskConfig.value.hr_seed_time) return `H&R ${taskConfig.value.hr_seed_time} 小时`
   if (taskConfig.value.seed_time) return `${taskConfig.value.seed_time} 小时后检查`
   if (taskConfig.value.seed_ratio) return `分享率 ${taskConfig.value.seed_ratio}`
@@ -379,7 +390,23 @@ function torrentPolicy(item) {
 function torrentStateText(item) {
   const progress = torrentProgress(item)
   if (item.deleted) return '已删除'
+  if (item.download_health === 'queued') return `排队 ${progress}%`
+  if (item.download_health === 'checking') return `检查 ${progress}%`
+  if (item.download_health === 'error') return `报错 ${progress}%`
+  if (item.download_health === 'stalled') return `卡住 ${progress}%`
+  if (item.download_health === 'slow') return `低速 ${progress}%`
+  if (item.download_health === 'paused') return `已暂停 ${progress}%`
   return progress >= 100 ? '做种' : `下载 ${progress}%`
+}
+
+function healthReasonText(item) {
+  if (item.reason === 'no_download_progress_with_connection') return '有连接但无下载增量'
+  if (item.reason === 'low_effective_download_speed') return `${Number(item.avg_kbps || 0).toFixed(1)} KB/s 有效均速`
+  if (item.reason === 'downloader_queue') return '受下载器队列限制'
+  if (item.reason === 'downloader_checking') return '下载器正在校验数据'
+  if (item.reason === 'downloader_error') return '下载器报告报错或缺少文件'
+  if (item.reason === 'downloader_paused') return '下载器已暂停'
+  return '无下载增量'
 }
 
 // 将站点分享率状态格式化为当前值、无限或暂无数据。
@@ -770,7 +797,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                       </VChip>
                     </div>
                     <div class="text-body-2 text-medium-emphasis">
-                      {{ strategy.engine_version || '8.0.0' }} · {{ strategy.profile || taskConfig.smart_profile || 'balanced' }} · 本地 30 天学习
+                      {{ strategy.engine_version || '8.0.1' }} · {{ strategy.profile || taskConfig.smart_profile || 'balanced' }} · 本地 30 天学习
                     </div>
                   </div>
                   <div v-if="taskConfig.smart_enabled" class="brushflow-strategy-actions">
@@ -794,7 +821,20 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                   <div><span>上传收益</span><strong>{{ Number(strategy.uploaded_gb_per_day || 0).toFixed(2) }} GB/天</strong></div>
                   <div><span>单位容量收益</span><strong>{{ (Number(strategy.unit_capacity_yield_per_day || 0) * 100).toFixed(3) }}%/天</strong></div>
                   <div><span>实际释放（24h）</span><strong>{{ formatBytes(strategy.actual_freed_bytes_24h || 0) }}</strong></div>
+                  <div><span>下载健康</span><strong>{{ downloadHealth.stalled_count || 0 }} 卡住 · {{ downloadHealth.slow_count || 0 }} 低速</strong></div>
                 </div>
+                <VAlert
+                  v-if="downloadHealth.stalled_count || downloadHealth.slow_count || downloadHealth.queued_count || downloadHealth.error_count"
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                >
+                  已发现 {{ downloadHealth.stalled_count || 0 }} 个长时间无进度、{{ downloadHealth.slow_count || 0 }} 个异常低速、{{ downloadHealth.queued_count || 0 }} 个排队或 {{ downloadHealth.error_count || 0 }} 个下载器报错；智能健康层不会因下载慢直接删除未完成数据。
+                  <div v-for="item in (downloadHealth.items || []).slice(0, 5)" :key="`health-${item.hash}`" class="brushflow-health-row">
+                    <span>{{ item.title || item.hash }}</span>
+                    <small>{{ item.label }} · {{ healthReasonText(item) }}</small>
+                  </div>
+                </VAlert>
               </VSheet>
 
               <VSheet tag="section" class="brushflow-panel app-surface-static">
@@ -864,7 +904,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     </div>
                   </template>
                   <template #item.status="{ item }">
-                    <VChip size="small" :color="item.deleted ? 'secondary' : torrentProgress(item) >= 100 ? 'success' : 'info'" variant="tonal">
+                    <VChip size="small" :color="item.deleted ? 'secondary' : item.download_health === 'stalled' || item.download_health === 'error' ? 'error' : item.download_health === 'slow' ? 'warning' : torrentProgress(item) >= 100 ? 'success' : 'info'" variant="tonal">
                       {{ torrentStateText(item) }}
                     </VChip>
                   </template>
@@ -1077,6 +1117,19 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 
 .brushflow-strategy-metrics {
   grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.brushflow-health-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.875rem;
+}
+
+.brushflow-health-row small {
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  text-align: right;
 }
 
 .brushflow-decision-grid {
