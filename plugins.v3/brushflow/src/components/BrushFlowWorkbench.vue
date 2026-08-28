@@ -75,6 +75,7 @@ const selectedTask = computed(() => tasks.value.find(item => item.id === selecte
 const selectedState = computed(() => taskStateMeta(selectedTask.value?.state))
 const taskConfig = computed(() => taskDetail.value?.task || {})
 const taskRuns = computed(() => taskDetail.value?.runs || [])
+const strategy = computed(() => taskDetail.value?.strategy || selectedTask.value?.strategy || {})
 const latestBrushRun = computed(() => taskRuns.value.find(item => item.kind === 'brush') || null)
 const torrentData = computed(() => taskDetail.value?.torrents || { items: [], total: 0, page: 1, page_size: 50 })
 const totalTorrentPages = computed(() => Math.max(Math.ceil(torrentData.value.total / torrentData.value.page_size), 1))
@@ -255,6 +256,38 @@ async function runOperation(operation) {
   } finally {
     saving.value = false
   }
+}
+
+async function runStrategyAction(action) {
+  if (!selectedTaskId.value) return
+  saving.value = true
+  try {
+    const response = unwrapResponse(
+      await props.api.post(`${pluginBase.value}/tasks/${selectedTaskId.value}/strategy/${action}`, {}),
+    )
+    taskDetail.value = response || taskDetail.value
+    await loadStatus({ loadDetail: true })
+    const messages = {
+      activate: '已提前启用；硬安全线仍然生效',
+      extend: '影子观察已延长 24 小时',
+      pause: '自动删种已暂停',
+      resume: '自动删种已恢复',
+      rollback: '决策引擎已切换',
+    }
+    notify(messages[action] || '策略已更新')
+  } catch (err) {
+    notify(err?.message || '更新智能策略失败', 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+function formatCountdown(seconds) {
+  const total = Math.max(Number(seconds || 0), 0)
+  if (!total) return '已结束'
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  return `${hours} 小时 ${minutes} 分钟`
 }
 
 // 保存全局插件与侧栏入口开关。
@@ -695,7 +728,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                     <div><dt>选种来源</dt><dd>{{ taskConfig.rss_support ? 'RSS' : '站点列表页' }}</dd></div>
                     <div><dt>促销要求</dt><dd>{{ taskConfig.freeleech === '2xfree' ? '2X 免费' : taskConfig.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
                     <div><dt>智能选种</dt><dd>{{ taskConfig.smart_selection_enabled ? `开启 · ${taskConfig.smart_adaptive_enabled ? '缺口自适应 · ' : ''}每轮最多 ${taskConfig.smart_selection_max_add_per_run || 5} 个` : '关闭' }}</dd></div>
-                    <div><dt>删种策略</dt><dd>{{ taskConfig.smart_enabled ? `智能实际执行 · 分享率权重 ${taskConfig.smart_ratio_weight || 18} · 阈值 ${taskConfig.smart_score_threshold || 40}` : taskConfig.proxy_delete ? `动态 ${taskConfig.delete_min_size || '-'}-${taskConfig.delete_max_size || '-'} GB` : (taskConfig.delete_condition_mode === 'all' ? '满足全部条件' : '满足任一条件') }}</dd></div>
+                    <div><dt>删种策略</dt><dd>{{ taskConfig.smart_enabled ? `${strategy.mode_label || '8.0 智能'} · ${taskConfig.smart_profile || 'balanced'} · 阈值 ${taskConfig.smart_score_threshold || 40}` : taskConfig.proxy_delete ? `动态 ${taskConfig.delete_min_size || '-'}-${taskConfig.delete_max_size || '-'} GB` : (taskConfig.delete_condition_mode === 'all' ? '满足全部条件' : '满足任一条件') }}</dd></div>
                     <div><dt>无效做种</dt><dd>{{ taskConfig.invalid_seed_cleanup_enabled ? `自动清理 · 连续确认 ${taskConfig.invalid_seed_confirmations || 2} 次 · 不删数据` : '关闭' }}</dd></div>
                     <div><dt>最少保种</dt><dd>{{ taskConfig.min_seed_time ? `${taskConfig.min_seed_time} 小时` : '未设置' }}</dd></div>
                   </dl>
@@ -726,6 +759,78 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                   </VBtn>
                 </VSheet>
               </div>
+
+              <VSheet tag="section" class="brushflow-panel app-surface-static">
+                <header class="brushflow-panel__head">
+                  <div>
+                    <div class="brushflow-panel__title-row">
+                      <span class="text-subtitle-1 font-weight-medium">策略概览</span>
+                      <VChip size="small" :color="strategy.mode === 'active' ? 'success' : strategy.mode === 'shadow' ? 'info' : 'warning'" variant="tonal">
+                        {{ strategy.mode_label || '等待首次检查' }}
+                      </VChip>
+                    </div>
+                    <div class="text-body-2 text-medium-emphasis">
+                      {{ strategy.engine_version || '8.0.0' }} · {{ strategy.profile || taskConfig.smart_profile || 'balanced' }} · 本地 30 天学习
+                    </div>
+                  </div>
+                  <div v-if="taskConfig.smart_enabled" class="brushflow-strategy-actions">
+                    <VBtn v-if="strategy.mode === 'shadow'" size="small" color="primary" variant="tonal" @click="runStrategyAction('activate')">提前启用</VBtn>
+                    <VBtn v-if="strategy.mode === 'shadow'" size="small" variant="text" @click="runStrategyAction('extend')">延长 24 小时</VBtn>
+                    <VBtn v-if="strategy.mode === 'paused'" size="small" color="success" variant="tonal" @click="runStrategyAction('resume')">恢复自动删除</VBtn>
+                    <VBtn v-else size="small" color="warning" variant="text" @click="runStrategyAction('pause')">暂停自动删除</VBtn>
+                    <VBtn size="small" variant="text" @click="runStrategyAction('rollback')">
+                      {{ taskConfig.smart_engine === 'legacy_7_3' ? '恢复 8.0' : '回退 7.3' }}
+                    </VBtn>
+                  </div>
+                </header>
+                <VAlert v-if="strategy.alert" type="warning" variant="tonal" density="compact">{{ strategy.alert }}</VAlert>
+                <div class="brushflow-run-summary brushflow-strategy-metrics">
+                  <div><span>影子倒计时</span><strong>{{ strategy.mode === 'shadow' ? formatCountdown(strategy.shadow_remaining_seconds) : '—' }}</strong></div>
+                  <div><span>学习置信度</span><strong>{{ Math.round(Number(strategy.learning_confidence || 0) * 100) }}%</strong></div>
+                  <div><span>有效样本</span><strong>{{ strategy.learning_sample_count || 0 }}</strong></div>
+                  <div><span>误判率</span><strong>{{ (Number(strategy.false_positive_rate || 0) * 100).toFixed(1) }}%</strong></div>
+                  <div><span>容量闭环</span><strong>{{ strategy.capacity_trigger_percent || 90 }}% → {{ strategy.capacity_target_percent || 85 }}%</strong></div>
+                  <div><span>预计释放</span><strong>{{ formatBytes(strategy.estimated_freed_bytes || 0) }}</strong></div>
+                  <div><span>上传收益</span><strong>{{ Number(strategy.uploaded_gb_per_day || 0).toFixed(2) }} GB/天</strong></div>
+                  <div><span>单位容量收益</span><strong>{{ (Number(strategy.unit_capacity_yield_per_day || 0) * 100).toFixed(3) }}%/天</strong></div>
+                  <div><span>实际释放（24h）</span><strong>{{ formatBytes(strategy.actual_freed_bytes_24h || 0) }}</strong></div>
+                </div>
+              </VSheet>
+
+              <VSheet tag="section" class="brushflow-panel app-surface-static">
+                <header class="brushflow-panel__head">
+                  <div>
+                    <div class="text-subtitle-1 font-weight-medium">决策解释</div>
+                    <div class="text-body-2 text-medium-emphasis">最近一次选种与删种计划；未知 Tracker 数据保持中性</div>
+                  </div>
+                </header>
+                <div class="brushflow-decision-grid">
+                  <div>
+                    <strong>选种判断</strong>
+                    <article v-for="item in (strategy.selection_explanations || []).slice(0, 8)" :key="`select-${item.title}`" class="brushflow-decision-row">
+                      <div><span>{{ item.title || '未知候选' }}</span><small>{{ (item.reasons || []).join(' · ') }}</small></div>
+                      <VChip size="x-small" :color="item.selected ? 'success' : 'secondary'" variant="tonal">{{ item.score }} 分</VChip>
+                    </article>
+                    <div v-if="!strategy.selection_explanations?.length" class="brushflow-table-empty">尚无智能选种记录</div>
+                  </div>
+                  <div>
+                    <strong>待删候选</strong>
+                    <article v-for="item in (strategy.deletion_explanations || []).slice(0, 8)" :key="`delete-${item.hash}`" class="brushflow-decision-row">
+                      <div><span>{{ item.title || item.hash }}</span><small>{{ (item.reasons || []).join(' · ') }} · {{ formatBytes(item.size || 0) }}</small></div>
+                      <VChip size="x-small" color="warning" variant="tonal">{{ item.score }} 分</VChip>
+                    </article>
+                    <div v-if="!strategy.deletion_explanations?.length" class="brushflow-table-empty">当前没有通过连续确认的低价值候选</div>
+                    <VAlert
+                      v-if="(strategy.pending_candidates || []).some(item => item.recovered)"
+                      type="warning"
+                      variant="tonal"
+                      density="compact"
+                    >
+                      影子候选中有 {{ (strategy.pending_candidates || []).filter(item => item.recovered).length }} 个在 24 小时内恢复上传或真实需求，已计入误判率。
+                    </VAlert>
+                  </div>
+                </div>
+              </VSheet>
 
               <VSheet tag="section" class="brushflow-panel brushflow-torrents app-surface-static">
                 <header class="brushflow-panel__head">
@@ -963,6 +1068,53 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 </template>
 
 <style scoped>
+.brushflow-strategy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.brushflow-strategy-metrics {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.brushflow-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.brushflow-decision-grid > div {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.brushflow-decision-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 8px;
+  border-block-end: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.brushflow-decision-row div {
+  display: grid;
+  min-inline-size: 0;
+}
+
+.brushflow-decision-row span,
+.brushflow-decision-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brushflow-decision-row small {
+  color: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+}
 .brushflow-page {
   display: flex;
   flex-direction: column;
@@ -1651,6 +1803,14 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
 
   .brushflow-run-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .brushflow-decision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .brushflow-strategy-actions {
+    justify-content: flex-start;
   }
 }
 

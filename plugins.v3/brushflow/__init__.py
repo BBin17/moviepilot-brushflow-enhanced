@@ -38,15 +38,26 @@ from app.sdk.utilities import StringUtils
 
 from .models import BrushFlowSettingsPayload, BrushTaskPayload, BrushTaskStatePayload
 from .signin import signin_site, success_message
+from .version import __version__
 from .decision import (
     SmartPolicy,
     TorrentObservation,
     adaptive_selection_policy,
+    candidate_score,
+    capacity_selection_policy,
     detect_invalid_seed,
     rank_selection_candidates,
     select_deletions,
     tracker_endpoint_domain,
 )
+from .learning import (
+    feature_key,
+    learning_summary,
+    predict_yield,
+    recent_yield_metrics,
+    update_learning_state,
+)
+from .migration import migrate_task_rows_v8
 
 
 TASK_CONFIG_FIELDS = (
@@ -60,6 +71,7 @@ TASK_CONFIG_FIELDS = (
     "active_time_range",
     "site_ratio_control",
     "site_ratio_target",
+    "site_ratio_reached_behavior",
     "disksize",
     "maxupspeed",
     "maxdlspeed",
@@ -82,6 +94,8 @@ TASK_CONFIG_FIELDS = (
     "min_seed_time",
     "min_inactivetime",
     "smart_enabled",
+    "smart_profile",
+    "smart_engine",
     "smart_selection_enabled",
     "smart_adaptive_enabled",
     "smart_selection_relax_filters",
@@ -92,14 +106,29 @@ TASK_CONFIG_FIELDS = (
     "smart_ratio_weight",
     "smart_cold_inactive_minutes",
     "smart_protect_active_demand",
+    "smart_demand_confirmations",
+    "smart_candidate_confirmations",
+    "smart_candidate_confirmation_minutes",
+    "smart_capacity_trigger_percent",
+    "smart_capacity_target_percent",
     "invalid_seed_cleanup_enabled",
     "invalid_seed_confirmations",
     "smart_score_threshold",
     "smart_score_margin",
     "smart_max_delete_per_run",
     "smart_max_delete_percent_day",
+    "smart_max_delete_capacity_percent_run",
+    "smart_max_delete_capacity_percent_day",
+    "smart_max_delete_gb_per_run",
+    "smart_max_delete_gb_per_day",
     "smart_allow_proactive_delete",
     "smart_required_conditions",
+    "smart_shadow_until",
+    "smart_shadow_started_at",
+    "smart_shadow_extensions",
+    "smart_delete_paused",
+    "smart_auto_activate",
+    "smart_migration_version",
     "delete_condition_mode",
     "dynamic_require_conditions",
     "dynamic_sort_mode",
@@ -162,6 +191,58 @@ GLOBAL_DYNAMIC_DELETE_FIELDS = (
     "global_delete_size_range",
 )
 
+SMART_PRESETS = {
+    "conservative": {
+        "smart_selection_max_add_per_run": 2,
+        "smart_selection_min_score": 40,
+        "smart_cold_inactive_minutes": 720,
+        "smart_candidate_confirmations": 4,
+        "smart_candidate_confirmation_minutes": 60,
+        "smart_score_threshold": 35,
+        "smart_max_delete_capacity_percent_day": 4,
+    },
+    "balanced": {
+        "smart_selection_max_add_per_run": 5,
+        "smart_selection_min_score": 30,
+        "smart_cold_inactive_minutes": 360,
+        "smart_candidate_confirmations": 3,
+        "smart_candidate_confirmation_minutes": 30,
+        "smart_score_threshold": 40,
+        "smart_max_delete_capacity_percent_day": 8,
+    },
+    "aggressive": {
+        "smart_selection_max_add_per_run": 8,
+        "smart_selection_min_score": 22,
+        "smart_cold_inactive_minutes": 180,
+        "smart_candidate_confirmations": 2,
+        "smart_candidate_confirmation_minutes": 15,
+        "smart_score_threshold": 48,
+        "smart_max_delete_capacity_percent_day": 15,
+    },
+}
+
+SMART_ADVANCED_FIELDS = (
+    "smart_selection_min_score",
+    "smart_selection_max_add_per_run",
+    "smart_ratio_weight",
+    "smart_cold_inactive_minutes",
+    "smart_demand_confirmations",
+    "smart_candidate_confirmations",
+    "smart_candidate_confirmation_minutes",
+    "smart_capacity_trigger_percent",
+    "smart_capacity_target_percent",
+    "smart_score_threshold",
+    "smart_score_margin",
+    "smart_max_delete_per_run",
+    "smart_max_delete_percent_day",
+    "smart_max_delete_capacity_percent_run",
+    "smart_max_delete_capacity_percent_day",
+    "smart_max_delete_gb_per_run",
+    "smart_max_delete_gb_per_day",
+    "smart_allow_proactive_delete",
+    "smart_required_conditions",
+)
+
 
 class BrushTaskConfig:
     """
@@ -182,6 +263,9 @@ class BrushTaskConfig:
         self.active_time_range = self._clean_text(config.get("active_time_range"))
         self.site_ratio_control = bool(config.get("site_ratio_control", False))
         self.site_ratio_target = self._parse_number(config.get("site_ratio_target"))
+        self.site_ratio_reached_behavior = str(
+            config.get("site_ratio_reached_behavior") or "continue"
+        )
         self.disksize = self._parse_number(config.get("disksize"))
         self.maxupspeed = self._parse_number(config.get("maxupspeed"))
         self.maxdlspeed = self._parse_number(config.get("maxdlspeed"))
@@ -208,6 +292,8 @@ class BrushTaskConfig:
             config.get("min_inactivetime", config.get("dynamic_min_inactivetime"))
         )
         self.smart_enabled = bool(config.get("smart_enabled", False))
+        self.smart_profile = str(config.get("smart_profile") or "balanced")
+        self.smart_engine = str(config.get("smart_engine") or "v8")
         self.smart_selection_enabled = bool(
             config.get("smart_selection_enabled", self.smart_enabled)
         )
@@ -216,18 +302,18 @@ class BrushTaskConfig:
             config.get("smart_selection_relax_filters", True)
         )
         smart_selection_min_score = self._parse_number(
-            config.get("smart_selection_min_score", 25)
+            config.get("smart_selection_min_score", 30)
         )
         self.smart_selection_min_score = (
-            25 if smart_selection_min_score is None else smart_selection_min_score
+            30 if smart_selection_min_score is None else smart_selection_min_score
         )
         self.smart_selection_max_add_per_run = int(
             self._parse_number(config.get("smart_selection_max_add_per_run", 5)) or 5
         )
         self.smart_min_ratio = self._parse_number(config.get("smart_min_ratio", 0)) or 0
         self.smart_min_uploaded = self._parse_number(config.get("smart_min_uploaded"))
-        smart_ratio_weight = self._parse_number(config.get("smart_ratio_weight", 18))
-        self.smart_ratio_weight = 18 if smart_ratio_weight is None else smart_ratio_weight
+        smart_ratio_weight = self._parse_number(config.get("smart_ratio_weight", 5))
+        self.smart_ratio_weight = 5 if smart_ratio_weight is None else min(smart_ratio_weight, 5)
         smart_cold_inactive_minutes = self._parse_number(
             config.get("smart_cold_inactive_minutes", 360)
         )
@@ -236,6 +322,23 @@ class BrushTaskConfig:
         )
         self.smart_protect_active_demand = bool(
             config.get("smart_protect_active_demand", True)
+        )
+        self.smart_demand_confirmations = max(
+            1,
+            min(int(self._parse_number(config.get("smart_demand_confirmations", 2)) or 2), 3),
+        )
+        self.smart_candidate_confirmations = max(
+            1,
+            int(self._parse_number(config.get("smart_candidate_confirmations", 3)) or 3),
+        )
+        self.smart_candidate_confirmation_minutes = float(
+            self._parse_number(config.get("smart_candidate_confirmation_minutes", 30)) or 0
+        )
+        self.smart_capacity_trigger_percent = float(
+            self._parse_number(config.get("smart_capacity_trigger_percent", 90)) or 90
+        )
+        self.smart_capacity_target_percent = float(
+            self._parse_number(config.get("smart_capacity_target_percent", 85)) or 85
         )
         self.invalid_seed_cleanup_enabled = bool(
             config.get("invalid_seed_cleanup_enabled", False)
@@ -258,10 +361,32 @@ class BrushTaskConfig:
         )
         if self.smart_max_delete_percent_day is None:
             self.smart_max_delete_percent_day = 5
+        self.smart_max_delete_capacity_percent_run = float(
+            self._parse_number(config.get("smart_max_delete_capacity_percent_run", 4)) or 0
+        )
+        self.smart_max_delete_capacity_percent_day = float(
+            self._parse_number(config.get("smart_max_delete_capacity_percent_day", 8)) or 0
+        )
+        self.smart_max_delete_gb_per_run = self._parse_number(
+            config.get("smart_max_delete_gb_per_run")
+        )
+        self.smart_max_delete_gb_per_day = self._parse_number(
+            config.get("smart_max_delete_gb_per_day")
+        )
         self.smart_allow_proactive_delete = bool(
             config.get("smart_allow_proactive_delete", False)
         )
         self.smart_required_conditions = bool(config.get("smart_required_conditions", False))
+        self.smart_shadow_until = self._parse_number(config.get("smart_shadow_until"))
+        self.smart_shadow_started_at = self._parse_number(config.get("smart_shadow_started_at"))
+        self.smart_shadow_extensions = int(
+            self._parse_number(config.get("smart_shadow_extensions", 0)) or 0
+        )
+        self.smart_delete_paused = bool(config.get("smart_delete_paused", False))
+        self.smart_auto_activate = bool(config.get("smart_auto_activate", True))
+        self.smart_migration_version = int(
+            self._parse_number(config.get("smart_migration_version", 0)) or 0
+        )
         self.delete_condition_mode = config.get("delete_condition_mode", "any")
         self.dynamic_require_conditions = bool(config.get("dynamic_require_conditions", False))
         self.dynamic_sort_mode = config.get("dynamic_sort_mode", "smart")
@@ -330,16 +455,16 @@ class BrushFlow(_PluginBase):
     """
 
     plugin_name = "站点刷流增强版"
-    plugin_desc = "完整保留站点刷流能力，增加智能选种删种、无效 Tracker 做种清理、站点自动签到、容量阈值、审计与限额。"
+    plugin_desc = "本地 30 天收益学习、硬安全线、容量闭环与可解释智能选删种。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "7.3.1"
+    plugin_version = __version__
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
     plugin_order = 21
     auth_level = 2
 
-    DATA_SCHEMA_VERSION = 3
+    DATA_SCHEMA_VERSION = 8
     MAX_RUN_HISTORY = 50
     GLOBAL_BRUSH_TAG = "刷流"
     SIGNIN_DATA_KEY = "signin_history"
@@ -352,6 +477,10 @@ class BrushFlow(_PluginBase):
         "smart_history",
         "smart_deletions",
         "smart_plan",
+        "smart_candidates",
+        "learning_state",
+        "decision_audit",
+        "strategy_state",
         "invalid_seed_history",
         "invalid_seed_plan",
     )
@@ -403,6 +532,7 @@ class BrushFlow(_PluginBase):
         if migrated:
             task_rows = self._migrate_legacy_config(raw_config)
         task_rows = task_rows or []
+        task_rows, migrated_v8 = self._migrate_v8_task_rows(task_rows)
 
         self._task_configs: Dict[str, BrushTaskConfig] = {}
         for row in task_rows:
@@ -416,7 +546,7 @@ class BrushFlow(_PluginBase):
             self._runtime[task.id] = {"state": "idle", "operation": None, "last_error": None}
 
         normalized = self._current_config()
-        if migrated or raw_config != normalized:
+        if migrated or migrated_v8 or raw_config != normalized:
             self.update_config(normalized)
         self._migrate_legacy_data()
         self._migrate_torrent_identity_data()
@@ -535,6 +665,41 @@ class BrushFlow(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "清除单个刷流任务数据",
+            },
+            {
+                "path": "/tasks/{task_id}/strategy/activate",
+                "endpoint": self.activate_smart_strategy,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "提前启用智能删种",
+            },
+            {
+                "path": "/tasks/{task_id}/strategy/extend",
+                "endpoint": self.extend_smart_shadow,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "延长智能删种观察期",
+            },
+            {
+                "path": "/tasks/{task_id}/strategy/pause",
+                "endpoint": self.pause_smart_deletion,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "暂停自动删种",
+            },
+            {
+                "path": "/tasks/{task_id}/strategy/resume",
+                "endpoint": self.resume_smart_deletion,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "恢复自动删种",
+            },
+            {
+                "path": "/tasks/{task_id}/strategy/rollback",
+                "endpoint": self.rollback_smart_engine,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "切换 7.3 兼容引擎",
             },
             {
                 "path": "/signin/run",
@@ -699,6 +864,7 @@ class BrushFlow(_PluginBase):
         """创建一个站点与下载器均独立的刷流任务"""
         task_data = payload.model_dump()
         task_data["id"] = uuid.uuid4().hex
+        task_data = self._prepare_smart_task_update(None, task_data)
         task = BrushTaskConfig(task_data)
         if not self._validate_task_reference(task):
             return schemas.Response(success=False, message="站点或下载器配置无效")
@@ -732,6 +898,7 @@ class BrushFlow(_PluginBase):
             return schemas.Response(success=False, message="任务正在执行，请稍后再修改")
         task_data = payload.model_dump()
         task_data["id"] = task_id
+        task_data = self._prepare_smart_task_update(self._task_configs[task_id], task_data)
         task = BrushTaskConfig(task_data)
         if not self._validate_task_reference(task):
             return schemas.Response(success=False, message="站点或下载器配置无效")
@@ -799,8 +966,117 @@ class BrushFlow(_PluginBase):
         if self._is_task_busy(task_id):
             return schemas.Response(success=False, message="任务正在执行，请稍后再清除")
         for data_name in self.TASK_DATA_NAMES:
-            self._save_task_data(task_id, data_name, {} if data_name != "runs" else [])
+            self._save_task_data(
+                task_id,
+                data_name,
+                [] if data_name in {"runs", "smart_history", "smart_deletions", "decision_audit"} else {},
+            )
         return schemas.Response(success=True, data=self._build_task_detail(task_id))
+
+    def _strategy_operation(self, task_id: str, action: str) -> schemas.Response:
+        task = self._task_configs.get(task_id)
+        if not task:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if self._is_task_busy(task_id):
+            return schemas.Response(success=False, message="任务正在执行，请稍后再操作策略")
+        now = time.time()
+        if action == "activate":
+            task.smart_shadow_until = None
+            task.smart_delete_paused = False
+            message = "已提前结束影子观察；硬安全线和删除限额仍然生效"
+        elif action == "extend":
+            task.smart_shadow_until = max(float(task.smart_shadow_until or 0), now) + 24 * 3600
+            task.smart_shadow_extensions += 1
+            message = "影子观察已延长 24 小时"
+        elif action == "pause":
+            task.smart_delete_paused = True
+            message = "自动删种已暂停，仍会生成决策计划"
+        elif action == "resume":
+            task.smart_delete_paused = False
+            message = "自动删种已恢复"
+        elif action == "rollback":
+            task.smart_engine = "legacy_7_3" if task.smart_engine != "legacy_7_3" else "v8"
+            message = "已切换到 7.3 兼容引擎" if task.smart_engine == "legacy_7_3" else "已恢复 8.0 收益引擎"
+        else:
+            return schemas.Response(success=False, message="未知策略操作")
+        self._append_decision_audit(
+            task_id,
+            {"at": now, "kind": "strategy_action", "action": action, "message": message},
+        )
+        self._save_config()
+        return schemas.Response(success=True, message=message, data=self._build_task_detail(task_id))
+
+    def activate_smart_strategy(self, task_id: str) -> schemas.Response:
+        return self._strategy_operation(task_id, "activate")
+
+    def extend_smart_shadow(self, task_id: str) -> schemas.Response:
+        return self._strategy_operation(task_id, "extend")
+
+    def pause_smart_deletion(self, task_id: str) -> schemas.Response:
+        return self._strategy_operation(task_id, "pause")
+
+    def resume_smart_deletion(self, task_id: str) -> schemas.Response:
+        return self._strategy_operation(task_id, "resume")
+
+    def rollback_smart_engine(self, task_id: str) -> schemas.Response:
+        return self._strategy_operation(task_id, "rollback")
+
+    @staticmethod
+    def _smart_change_increases_risk(previous: BrushTaskConfig, current: dict) -> bool:
+        """识别会扩大自动删除范围的高级设置变更。"""
+        return any(
+            (
+                float(current.get("smart_score_threshold") or 0) > float(previous.smart_score_threshold or 0),
+                float(current.get("smart_cold_inactive_minutes") or 0) < float(previous.smart_cold_inactive_minutes or 0),
+                int(current.get("smart_candidate_confirmations") or 0) < int(previous.smart_candidate_confirmations or 0),
+                float(current.get("smart_candidate_confirmation_minutes") or 0) < float(previous.smart_candidate_confirmation_minutes or 0),
+                int(current.get("smart_max_delete_per_run") or 0) > int(previous.smart_max_delete_per_run or 0),
+                float(current.get("smart_max_delete_capacity_percent_day") or 0) > float(previous.smart_max_delete_capacity_percent_day or 0),
+                bool(current.get("smart_allow_proactive_delete")) and not previous.smart_allow_proactive_delete,
+            )
+        )
+
+    def _prepare_smart_task_update(
+        self,
+        previous: Optional[BrushTaskConfig],
+        task_data: dict,
+    ) -> dict:
+        """标准化预设；首次启用或风险扩大时自动进入安全观察期。"""
+        row = dict(task_data)
+        profile = str(row.get("smart_profile") or "balanced")
+        preset = SMART_PRESETS.get(profile)
+        preset_mismatch = bool(preset and any(
+            float(row.get(key) or 0) != float(value) for key, value in preset.items()
+        ))
+        advanced_changed = bool(
+            previous
+            and profile == previous.smart_profile
+            and any(getattr(previous, key) != row.get(key) for key in SMART_ADVANCED_FIELDS)
+        )
+        if preset and (preset_mismatch or advanced_changed):
+            row["smart_profile"] = "custom"
+        now = time.time()
+        newly_enabled = bool(row.get("smart_enabled")) and not bool(previous and previous.smart_enabled)
+        risk_increased = bool(previous and row.get("smart_enabled") and self._smart_change_increases_risk(previous, row))
+        if newly_enabled:
+            row["smart_shadow_started_at"] = now
+            row["smart_shadow_until"] = now + 48 * 3600
+            row["smart_shadow_extensions"] = 0
+        elif risk_increased:
+            row["smart_shadow_started_at"] = now
+            row["smart_shadow_until"] = now + 24 * 3600
+        row["smart_migration_version"] = 8
+        row["smart_allow_proactive_delete"] = bool(row.get("smart_allow_proactive_delete", False))
+        row["site_ratio_reached_behavior"] = row.get("site_ratio_reached_behavior") or "continue"
+        return row
+
+    def _append_decision_audit(self, task_id: str, row: dict) -> None:
+        """保存最近 500 条完整决策，实际调用下载器前也必须先写入。"""
+        history = self._get_task_data(task_id, "decision_audit") or []
+        if not isinstance(history, list):
+            history = []
+        history.append(dict(row))
+        self._save_task_data(task_id, "decision_audit", history[-500:])
 
     @eventmanager.register(EventType.PluginReload)
     def reload(self, event: Event) -> None:
@@ -1177,6 +1453,16 @@ class BrushFlow(_PluginBase):
             tasks.append(BrushTaskConfig(task_data).to_dict())
         return tasks
 
+    def _migrate_v8_task_rows(self, rows: List[dict]) -> Tuple[List[dict], bool]:
+        """幂等迁移 7.x 任务，并保存逐任务升级前配置。"""
+        backups = self.get_data("v8_task_config_backups") or {}
+        if not isinstance(backups, dict):
+            backups = {}
+        normalized, backups, migrated = migrate_task_rows_v8(rows, backups)
+        if migrated:
+            self.save_data("v8_task_config_backups", backups)
+        return normalized, migrated
+
     @staticmethod
     def _parse_legacy_site_overrides(config: dict) -> Dict[str, dict]:
         """解析旧版允许注释的站点覆盖 JSON"""
@@ -1440,7 +1726,7 @@ class BrushFlow(_PluginBase):
             display_state = runtime.get("operation") or "running"
         elif site_ratio["enabled"] and not site_ratio["available"]:
             display_state = "ratio_unavailable"
-        elif site_ratio["reached"]:
+        elif site_ratio["reached"] and task.site_ratio_reached_behavior == "pause":
             display_state = "waiting_ratio"
         elif not self._is_current_time_in_range(task):
             display_state = "waiting"
@@ -1467,6 +1753,7 @@ class BrushFlow(_PluginBase):
             "statistic": statistic,
             "seeding_size": self.__calculate_seeding_torrents_size(torrents),
             "site_ratio": site_ratio,
+            "strategy": self._build_strategy_status(task_id),
         }
 
     @staticmethod
@@ -1544,13 +1831,15 @@ class BrushFlow(_PluginBase):
             return True, None, status
         if not status["available"]:
             return False, "暂无站点分享率统计，等待数据更新", status
-        if status["reached"]:
+        if status["reached"] and task.site_ratio_reached_behavior == "pause":
             current = "无限" if status["unlimited"] else f"{status['current']:.2f}"
             return (
                 False,
                 f"站点分享率 {current}，已达到目标 {float(status['target']):.2f}",
                 status,
             )
+        if status["reached"]:
+            return True, "目标已达成，按普通均衡门槛继续运行", status
         return True, None, status
 
     def _build_task_detail(
@@ -1578,6 +1867,7 @@ class BrushFlow(_PluginBase):
         return {
             "task": task.to_dict(),
             "summary": self._task_summary(task_id),
+            "strategy": self._build_strategy_status(task_id),
             "runs": (self._get_task_data(task_id, "runs") or [])[:20],
             "torrents": {
                 "items": selected_rows,
@@ -1587,6 +1877,97 @@ class BrushFlow(_PluginBase):
                 "state": state,
             },
         }
+
+    def _build_strategy_status(self, task_id: str) -> Dict[str, Any]:
+        """组装策略概览、学习置信度和最近选删种解释。"""
+        task = self._task_configs[task_id]
+        now = time.time()
+        state = dict(self._get_task_data(task_id, "strategy_state") or {})
+        learning_state = self._get_task_data(task_id, "learning_state") or {}
+        learning = learning_summary(learning_state)
+        candidates = self._get_task_data(task_id, "smart_candidates") or {}
+        if not isinstance(candidates, dict):
+            candidates = {}
+        audit = self._get_task_data(task_id, "decision_audit") or []
+        if not isinstance(audit, list):
+            audit = []
+        latest_selection = next((row for row in reversed(audit) if row.get("kind") == "selection"), None)
+        latest_deletion = next((row for row in reversed(audit) if row.get("kind") == "deletion"), None)
+        torrents = self._get_task_data(task_id, "torrents") or {}
+        current_size = self.__calculate_seeding_torrents_size(torrents)
+        uploaded_24h = 0.0
+        snapshots = learning_state.get("snapshots", []) if isinstance(learning_state, dict) else []
+        previous_by_hash: Dict[str, dict] = {}
+        for row in snapshots:
+            if float(row.get("at") or 0) > now - 24 * 3600:
+                continue
+            torrent_hash = str(row.get("hash") or "")
+            if torrent_hash and float(row.get("at") or 0) > float(
+                previous_by_hash.get(torrent_hash, {}).get("at") or 0
+            ):
+                previous_by_hash[torrent_hash] = row
+        for torrent_hash, torrent in torrents.items():
+            if torrent.get("deleted"):
+                continue
+            previous = previous_by_hash.get(str(torrent_hash))
+            if previous:
+                uploaded_24h += max(
+                    float(torrent.get("uploaded") or 0) - float(previous.get("uploaded") or 0),
+                    0.0,
+                )
+        deleted_rows = self._get_task_data(task_id, "smart_deletions") or []
+        actual_freed_24h = sum(
+            float(row.get("size") or 0)
+            for row in deleted_rows
+            if now - float(row.get("at") or 0) <= 24 * 3600
+        )
+        capacity = float(task.disksize or 0) * 1024**3
+        shadow_remaining = max(float(task.smart_shadow_until or 0) - now, 0.0)
+        if not task.smart_enabled:
+            mode, mode_label = "disabled", "智能删种未启用"
+        elif task.smart_delete_paused:
+            mode, mode_label = "paused", "自动删除已暂停"
+        elif shadow_remaining > 0:
+            mode, mode_label = "shadow", "影子观察中"
+        else:
+            mode, mode_label = "active", "自动删除已启用"
+        candidate_rows = sorted(
+            candidates.values(),
+            key=lambda row: float(row.get("planned_at") or 0),
+            reverse=True,
+        )
+        false_positive_count = sum(1 for row in candidate_rows if row.get("recovered"))
+        state.update(
+            {
+                "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else "8.0.0",
+                "profile": task.smart_profile,
+                "mode": mode,
+                "mode_label": mode_label,
+                "shadow_until": task.smart_shadow_until,
+                "shadow_remaining_seconds": shadow_remaining,
+                "learning_confidence": learning["confidence"],
+                "learning_sample_count": learning["sample_count"],
+                "learning": learning,
+                "candidate_count": len(candidate_rows),
+                "false_positive_count": false_positive_count,
+                "false_positive_rate": round(false_positive_count / len(candidate_rows), 4) if candidate_rows else 0.0,
+                "capacity_bytes": capacity,
+                "current_size_bytes": current_size,
+                "capacity_trigger_bytes": capacity * task.smart_capacity_trigger_percent / 100 if capacity else None,
+                "capacity_target_bytes": capacity * task.smart_capacity_target_percent / 100 if capacity else None,
+                "capacity_trigger_percent": task.smart_capacity_trigger_percent,
+                "capacity_target_percent": task.smart_capacity_target_percent,
+                "estimated_freed_bytes": (latest_deletion or {}).get("estimated_freed_bytes", 0),
+                "uploaded_gb_per_day": round(uploaded_24h / 1024**3, 3),
+                "unit_capacity_yield_per_day": round(uploaded_24h / current_size, 6) if current_size else 0.0,
+                "actual_freed_bytes_24h": actual_freed_24h,
+                "selection_explanations": (latest_selection or {}).get("decisions", []),
+                "deletion_explanations": (latest_deletion or {}).get("selected", []),
+                "pending_candidates": candidate_rows[:50],
+                "audit_count": len(audit),
+            }
+        )
+        return state
 
     @staticmethod
     def _next_run_at(task: BrushTaskConfig, history: List[dict]) -> Optional[str]:
@@ -1749,8 +2130,15 @@ class BrushFlow(_PluginBase):
         if task.smart_selection_enabled or task.smart_enabled:
             ratio_current = (ratio_status or {}).get("current")
             ratio_target = (ratio_status or {}).get("target") or task.site_ratio_target or 2.0
-            selection_limit = int(task.smart_selection_max_add_per_run or 5)
-            selection_min_score = float(task.smart_selection_min_score or 25)
+            capacity_limit = float(task.disksize or 0) * 1024**3
+            task_size = self.__calculate_seeding_torrents_size(torrent_tasks)
+            occupancy_ratio = task_size / capacity_limit if capacity_limit > 0 else 0.0
+            selection_limit, selection_min_score, capacity_tier = capacity_selection_policy(
+                task.smart_profile,
+                occupancy_ratio,
+                int(task.smart_selection_max_add_per_run or 5),
+                float(task.smart_selection_min_score or 30),
+            )
             ratio_gap = 0.0
             if task.smart_adaptive_enabled and ratio_status and ratio_status.get("available"):
                 selection_limit, selection_min_score, ratio_gap = adaptive_selection_policy(
@@ -1759,6 +2147,20 @@ class BrushFlow(_PluginBase):
                     ratio_current,
                     ratio_target,
                 )
+            learning_state = self._get_task_data(task.id, "learning_state") or {}
+            learned_by_candidate: Dict[str, dict] = {}
+            learned_median = 0.0
+            for candidate in torrents:
+                candidate_key = str(
+                    getattr(candidate, "enclosure", "")
+                    or getattr(candidate, "page_url", "")
+                    or getattr(candidate, "title", "")
+                    or (candidate.get("title") if isinstance(candidate, dict) else "")
+                )
+                learned = predict_yield(learning_state, candidate)
+                learned_by_candidate[candidate_key] = learned
+                learned_median = float(learned.get("median") or learned_median)
+            learning_info = learning_summary(learning_state)
             report["smart_selection_policy"] = {
                 "current_ratio": ratio_current,
                 "target_ratio": ratio_target,
@@ -1766,6 +2168,11 @@ class BrushFlow(_PluginBase):
                 "max_add": selection_limit,
                 "min_score": selection_min_score,
                 "adaptive": bool(task.smart_adaptive_enabled),
+                "profile": task.smart_profile,
+                "capacity_tier": capacity_tier,
+                "occupancy_percent": round(occupancy_ratio * 100, 2),
+                "learning_confidence": learning_info["confidence"],
+                "learning_samples": learning_info["sample_count"],
             }
             report["smart_selection_input_count"] = len(torrents)
             ranked_candidates = rank_selection_candidates(
@@ -1776,6 +2183,11 @@ class BrushFlow(_PluginBase):
                 max_count=max(selection_limit, len(torrents), 1),
                 share_ratio_gap=ratio_gap,
                 share_ratio_target=ratio_target,
+                occupancy_ratio=occupancy_ratio,
+                profile=task.smart_profile,
+                learning=learned_by_candidate,
+                learning_confidence=learning_info["confidence"],
+                learned_median_yield=learned_median,
             )
             report["smart_selection_count"] = len(ranked_candidates)
             if torrents and not ranked_candidates:
@@ -1789,6 +2201,49 @@ class BrushFlow(_PluginBase):
                 }
                 for item in ranked_candidates
             ]
+            selected_keys = {id(item.candidate) for item in ranked_candidates}
+            report["smart_selection_explanations"] = []
+            for candidate in torrents:
+                candidate_key = str(
+                    getattr(candidate, "enclosure", "")
+                    or getattr(candidate, "page_url", "")
+                    or getattr(candidate, "title", "")
+                    or (candidate.get("title") if isinstance(candidate, dict) else "")
+                )
+                learned = learned_by_candidate.get(candidate_key) or {}
+                decision = candidate_score(
+                    candidate,
+                    occupancy_ratio=occupancy_ratio,
+                    profile=task.smart_profile,
+                    normal_threshold=selection_min_score,
+                    learned_yield_score=learned.get("score"),
+                    learned_expected_yield=learned.get("expected"),
+                    learned_median_yield=learned_median,
+                    learning_confidence=learning_info["confidence"],
+                )
+                accepted = id(candidate) in selected_keys and decision.score >= selection_min_score
+                reasons = list(decision.reason_codes)
+                if decision.score < selection_min_score:
+                    reasons.append("below_selection_threshold")
+                report["smart_selection_explanations"].append(
+                    {
+                        "title": getattr(candidate, "title", "") or candidate_key,
+                        "selected": accepted,
+                        "score": decision.score,
+                        "reasons": reasons,
+                        "contributions": dict(decision.contributions),
+                        "confidence": decision.confidence,
+                    }
+                )
+            self._append_decision_audit(
+                task.id,
+                {
+                    "at": time.time(),
+                    "kind": "selection",
+                    "policy": dict(report["smart_selection_policy"]),
+                    "decisions": report["smart_selection_explanations"][:50],
+                },
+            )
             torrents = [item.candidate for item in ranked_candidates]
         else:
             torrents.sort(key=lambda item: item.pubdate or "", reverse=True)
@@ -1856,6 +2311,8 @@ class BrushFlow(_PluginBase):
             "freedate": torrent.freedate,
             "uploadvolumefactor": torrent.uploadvolumefactor,
             "downloadvolumefactor": torrent.downloadvolumefactor,
+            "join_seeders": getattr(torrent, "seeders", None),
+            "join_leechers": getattr(torrent, "leechers", None),
             "hit_and_run": torrent.hit_and_run or task.site_hr_active,
             "volume_factor": torrent.volume_factor,
             "freedate_diff": torrent.freedate_diff,
@@ -2229,11 +2686,14 @@ class BrushFlow(_PluginBase):
             )
         report["invalid_seed_plan_count"] = len(invalid_delete_hashes)
         report["invalid_seed_plan_reasons"] = list(invalid_seed_plan.values())
+        smart_shadow_only = False
         if task.smart_enabled:
             regular_delete_hashes = self.__delete_torrent_for_smart(filtered_torrents, torrent_tasks)
             smart_plan = self._current_task_data("smart_plan", {})
-            report["smart_plan_count"] = len(regular_delete_hashes)
+            report["smart_plan_count"] = len(smart_plan)
+            report["smart_execute_count"] = len(regular_delete_hashes)
             report["smart_plan_reasons"] = list(smart_plan.values())
+            smart_shadow_only = self._build_strategy_status(task.id).get("mode") in {"shadow", "paused"}
         elif self._global_dynamic_delete_enabled():
             regular_delete_hashes = []
         elif task.proxy_delete and task.delete_size_range:
@@ -2246,12 +2706,16 @@ class BrushFlow(_PluginBase):
             for torrent_hash in dict.fromkeys(regular_delete_hashes or [])
             if torrent_hash not in invalid_delete_hashes
         ]
-        planned_delete_count = len(invalid_delete_hashes) + len(regular_delete_hashes)
+        planned_delete_count = len(invalid_delete_hashes) + int(report.get("smart_plan_count") or len(regular_delete_hashes))
         deleted_from_downloader = False
         actual_invalid_hashes: List[str] = []
         actual_regular_hashes: List[str] = []
         if invalid_delete_hashes:
-            if task.delete_dry_run and not task.smart_enabled:
+            if smart_shadow_only:
+                logger.info(
+                    f"[影子观察] 任务 [{task.name}] 本轮记录 {len(invalid_delete_hashes)} 个无效做种计划，未调用下载器"
+                )
+            elif task.delete_dry_run and not task.smart_enabled:
                 for torrent_hash in invalid_delete_hashes:
                     logger.info(
                         f"[模拟删种] 无效做种计划仅移除 qB 任务："
@@ -2300,8 +2764,28 @@ class BrushFlow(_PluginBase):
                             )
                     self._save_current_task_data("smart_plan", {})
                     self.__record_smart_deletions(actual_regular_hashes, torrent_tasks)
+                    self._append_decision_audit(
+                        task.id,
+                        {
+                            "at": time.time(),
+                            "kind": "deletion_outcome",
+                            "success": True,
+                            "delete_files": bool(task.delete_files),
+                            "hashes": list(actual_regular_hashes),
+                        },
+                    )
             else:
                 logger.warning(f"刷流任务 [{task.name}] 普通删种执行失败，本轮保留任务")
+                if task.smart_enabled:
+                    self._append_decision_audit(
+                        task.id,
+                        {
+                            "at": time.time(),
+                            "kind": "deletion_outcome",
+                            "success": False,
+                            "hashes": list(regular_delete_hashes),
+                        },
+                    )
         need_delete_hashes = list(dict.fromkeys(actual_invalid_hashes + actual_regular_hashes))
         self.__auto_archive_tasks(torrent_tasks)
         self._cleanup_unused_task_tag(
@@ -2535,6 +3019,9 @@ class BrushFlow(_PluginBase):
             "missing_min_seed_time": "未配置站点最低保种时长",
             "min_seed_time": "尚未达到站点最低保种时长",
             "active_demand": "当前存在下载需求",
+            "trusted_active_demand": "最近 3 次中至少 2 次存在真实下载需求",
+            "real_upload": "最近出现真实上传增量或正在上传",
+            "active_connection": "下载器仍有有效活动连接",
             "smart_cold_cooldown": "尚未达到智能冷种保护时间",
             "min_inactive_time": "尚未达到最低未活动时间",
             "min_ratio": "尚未达到最低分享率",
@@ -2542,6 +3029,7 @@ class BrushFlow(_PluginBase):
             "excluded_tag": "命中删除排除标签",
             "required_condition": "尚未满足附加删除条件",
             "low_retention_value": "长期低需求、低上传或资源不稀缺",
+            "low_value_unconfirmed": "低价值信号尚未连续确认",
             "valuable_seed": "存在上传需求或资源稀缺，继续保留",
         }
         codes = getattr(result, "reason_codes", ()) or ()
@@ -2555,21 +3043,32 @@ class BrushFlow(_PluginBase):
             if item.strip()
         )
         return SmartPolicy(
+            profile=task.smart_profile,
             min_seed_time_hours=float(task.min_seed_time or 0),
             min_inactive_minutes=float(task.min_inactivetime or 0),
             smart_cold_inactive_minutes=float(task.smart_cold_inactive_minutes or 0),
             protect_active_demand=bool(task.smart_protect_active_demand),
+            demand_confirmations=int(task.smart_demand_confirmations or 2),
+            low_value_confirmations=int(task.smart_candidate_confirmations or 3),
+            low_value_span_minutes=float(task.smart_candidate_confirmation_minutes or 0),
             min_ratio=float(task.smart_min_ratio or 0),
             min_uploaded_gb=float(task.smart_min_uploaded or 0),
             ratio_target=float(task.site_ratio_target or 2.0),
-            ratio_weight=float(task.smart_ratio_weight or 18),
+            ratio_weight=(18.0 if task.smart_engine == "legacy_7_3" else min(float(task.smart_ratio_weight or 5), 5)),
             score_threshold=float(task.smart_score_threshold or 40),
             score_margin=float(task.smart_score_margin or 0),
+            capacity_trigger_percent=float(task.smart_capacity_trigger_percent or 90),
+            capacity_target_percent=float(task.smart_capacity_target_percent or 85),
             max_delete_per_run=int(task.smart_max_delete_per_run or 3),
             max_delete_percent_day=float(task.smart_max_delete_percent_day or 0),
+            max_delete_capacity_percent_run=float(task.smart_max_delete_capacity_percent_run or 0),
+            max_delete_capacity_percent_day=float(task.smart_max_delete_capacity_percent_day or 0),
+            max_delete_gb_per_run=float(task.smart_max_delete_gb_per_run or 0),
+            max_delete_gb_per_day=float(task.smart_max_delete_gb_per_day or 0),
             allow_proactive_delete=bool(task.smart_allow_proactive_delete),
             required_conditions=bool(task.smart_required_conditions),
             excluded_tags=excluded_tags,
+            engine_version="7.3" if task.smart_engine == "legacy_7_3" else "8.0",
         )
 
     def __record_smart_deletions(
@@ -2599,21 +3098,22 @@ class BrushFlow(_PluginBase):
         torrents: List[Any],
         torrent_tasks: Dict[str, dict],
     ) -> List[str]:
-        """按站点最低时长、实时需求和保留价值生成智能实际删种计划。"""
+        """生成 8.0 智能删种计划；影子期和暂停期只记录、不执行。"""
         task = self._get_task_config()
         if not task or not task.smart_enabled:
             return []
         self._save_current_task_data("smart_plan", {})
-
-        history = self._current_task_data("smart_history", [])
         now = time.time()
+        history = self._current_task_data("smart_history", [])
+        if not isinstance(history, list):
+            history = []
         history = [
             row for row in history
-            if now - float(row.get("at") or 0) <= 14 * 86400
+            if now - float(row.get("at") or 0) <= 30 * 86400
         ]
         observations: List[dict] = []
+        learning_observations: List[dict] = []
         legacy_conditions: Dict[str, bool] = {}
-        # 只使用本轮开始前的历史，当前快照在评分完成后再写入。
         history_before_current = list(history)
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
@@ -2631,43 +3131,97 @@ class BrushFlow(_PluginBase):
                 }
             )
             observations.append(info)
+            learning_row = {
+                **torrent_task,
+                **info,
+                "hash": torrent_hash,
+                "joined_at": torrent_task.get("time"),
+                "feature_key": feature_key(torrent_task, joined_at=torrent_task.get("time")),
+            }
+            learning_observations.append(learning_row)
             if task.smart_required_conditions:
                 matched, _ = self.__evaluate_conditions_for_delete(info, torrent_task)
                 legacy_conditions[torrent_hash] = matched
-
-            history.append(
-                {
-                    "at": now,
-                    "hash": torrent_hash,
-                    "upload_speed": info.get("upload_speed", 0),
-                    "avg_upload_speed": info.get("avg_upspeed", 0),
-                    "active_peers": info.get("active_peers", 0),
-                    "leechers": info.get("leechers", 0),
-                }
-            )
-
-        self._save_current_task_data("smart_history", history[-2000:])
         if not observations:
             return []
+
+        previous_learning_state = self._current_task_data("learning_state", {}) or {}
+        learning_state = update_learning_state(
+            previous_learning_state,
+            learning_observations,
+            now=now,
+        )
+        if learning_state.get("updated_at") != previous_learning_state.get("updated_at"):
+            self._save_current_task_data("learning_state", learning_state)
+        learning_info = learning_summary(learning_state)
+        task_records = {
+            str(item.get("hash")): item for item in learning_observations
+        }
+        enriched_observations: List[dict] = []
+        for info in observations:
+            torrent_hash = str(info.get("hash") or "")
+            learned = predict_yield(learning_state, task_records.get(torrent_hash, info))
+            metrics = recent_yield_metrics(
+                learning_state,
+                torrent_hash,
+                uploaded=float(info.get("uploaded") or 0),
+                size=float(info.get("size") or info.get("total_size") or 0),
+                now=now,
+            )
+            previous_upload = next(
+                (
+                    float(row.get("uploaded") or 0)
+                    for row in sorted(
+                        (
+                            item
+                            for item in history_before_current
+                            if str(item.get("hash") or "") == torrent_hash
+                        ),
+                        key=lambda item: float(item.get("at") or 0),
+                        reverse=True,
+                    )
+                    if row.get("uploaded") is not None
+                ),
+                None,
+            )
+            if previous_upload is not None:
+                immediate_delta = max(float(info.get("uploaded") or 0) - previous_upload, 0.0)
+                metrics["upload_delta_since_check"] = immediate_delta
+                for window in (1, 6, 24):
+                    metrics[f"upload_delta_{window}h"] = max(
+                        float(metrics.get(f"upload_delta_{window}h") or 0),
+                        immediate_delta,
+                    )
+            enriched_observations.append(
+                {
+                    **info,
+                    **metrics,
+                    "learned_potential": (
+                        float(learned.get("score") or 0)
+                        / 25.0
+                        * 15.0
+                        * float(learned.get("confidence") or 0)
+                    ),
+                }
+            )
 
         min_size = float(task.delete_min_size) * 1024**3 if task.delete_min_size else None
         max_size = float(task.delete_max_size) * 1024**3 if task.delete_max_size else None
         disk_limit = float(task.disksize) * 1024**3 if task.disksize else None
-        if max_size is None and disk_limit and not task.smart_allow_proactive_delete:
-            max_size = disk_limit * 0.90
-        if min_size is None and max_size and (
-            not task.smart_allow_proactive_delete or task.delete_max_size
-        ):
-            min_size = max_size * 0.80
         deleted_rows = self._get_task_data(task.id, "smart_deletions") or []
         deleted_today = sum(
             1
             for row in deleted_rows
             if now - float(row.get("at") or 0) < 86400
         )
+        deleted_today_bytes = sum(
+            float(row.get("size") or 0)
+            for row in deleted_rows
+            if now - float(row.get("at") or 0) < 86400
+        )
         current_size = self.__calculate_seeding_torrents_size(torrent_tasks)
         selection = select_deletions(
-            observations,
+            enriched_observations,
             self._smart_policy(task),
             current_size=current_size,
             min_size=min_size,
@@ -2675,14 +3229,29 @@ class BrushFlow(_PluginBase):
             disk_limit=disk_limit,
             history=history_before_current,
             deleted_today=deleted_today,
+            deleted_today_bytes=deleted_today_bytes,
             legacy_conditions=legacy_conditions,
         )
-        if not selection.selected:
-            logger.info(
-                f"智能删种任务 [{task.name}] 本轮不删："
-                f"{','.join(selection.reason_codes) or '没有低保留价值候选'}"
+
+        evaluated_by_hash = {result.torrent_hash: result for result in selection.evaluated}
+        for info in enriched_observations:
+            torrent_hash = str(info.get("hash") or "")
+            result = evaluated_by_hash.get(torrent_hash)
+            history.append(
+                {
+                    "at": now,
+                    "hash": torrent_hash,
+                    "uploaded": info.get("uploaded", 0),
+                    "upload_speed": info.get("upload_speed", 0),
+                    "avg_upload_speed": info.get("avg_upspeed", 0),
+                    "active_peers": info.get("active_peers"),
+                    "seeders": info.get("seeders"),
+                    "leechers": info.get("leechers"),
+                    "low_value": bool(result and result.action in {"watch", "candidate"}),
+                    "score": result.score if result else None,
+                }
             )
-            return []
+        self._save_current_task_data("smart_history", history[-5000:])
 
         results = {result.torrent_hash: result for result in selection.selected}
         delete_hashes: List[str] = []
@@ -2691,18 +3260,246 @@ class BrushFlow(_PluginBase):
             torrent_task = torrent_tasks.get(torrent_hash)
             if not torrent_task:
                 continue
+            observation = next(
+                (row for row in enriched_observations if str(row.get("hash") or "") == torrent_hash),
+                {},
+            )
+            hard_reasons = self._smart_runtime_safety_reasons(task, observation)
+            if hard_reasons:
+                logger.error(
+                    f"智能删种任务 [{task.name}] 守门拦截候选 {torrent_hash}："
+                    f"{','.join(hard_reasons)}"
+                )
+                continue
             reason = (
                 f"智能决策保留价值 {result.score:.1f} 分，"
                 f"{self._smart_reason_text(result)}"
             )
             delete_hashes.append(torrent_hash)
             smart_plan[torrent_hash] = reason
-            logger.info(
-                f"智能删种任务 [{task.name}] 计划实际删除："
-                f"{torrent_task.get('title')}，{reason}"
-            )
         self._save_current_task_data("smart_plan", smart_plan)
+        strategy = self._update_smart_strategy_state(
+            task,
+            enriched_observations,
+            history_before_current,
+            selection,
+            learning_info,
+            torrent_tasks,
+        )
+        self._append_decision_audit(
+            task.id,
+            {
+                "at": now,
+                "kind": "deletion",
+                "engine": strategy.get("engine_version"),
+                "mode": strategy.get("mode"),
+                "pressure": selection.pressure,
+                "current_size": current_size,
+                "target_size": selection.target_size,
+                "estimated_freed_bytes": selection.estimated_freed_bytes,
+                "reason_codes": list(selection.reason_codes),
+                "selected": [
+                    {
+                        "hash": result.torrent_hash,
+                        "title": torrent_tasks.get(result.torrent_hash, {}).get("title"),
+                        "size": torrent_tasks.get(result.torrent_hash, {}).get("size"),
+                        "score": result.score,
+                        "reasons": list(result.reason_codes),
+                        "contributions": dict(result.contributions),
+                    }
+                    for result in selection.selected
+                ],
+                "evaluated": [
+                    {
+                        "hash": result.torrent_hash,
+                        "action": result.action,
+                        "score": result.score,
+                        "reasons": list(result.reason_codes),
+                    }
+                    for result in selection.evaluated[:200]
+                ],
+            },
+        )
+        if not selection.selected:
+            logger.info(
+                f"智能删种任务 [{task.name}] 本轮不删："
+                f"{','.join(selection.reason_codes) or '候选尚在连续确认或受硬安全线保护'}"
+            )
+            return []
+        if strategy.get("mode") != "active":
+            logger.info(
+                f"智能删种任务 [{task.name}] {strategy.get('mode_label')}："
+                f"仅记录 {len(delete_hashes)} 个计划，不调用下载器"
+            )
+            return []
+        for torrent_hash in delete_hashes:
+            logger.info(
+                f"智能删种任务 [{task.name}] 已通过 8.0 守门，准备删除："
+                f"{torrent_tasks.get(torrent_hash, {}).get('title')}"
+            )
         return delete_hashes
+
+    @staticmethod
+    def _smart_runtime_safety_reasons(task: BrushTaskConfig, observation: dict) -> List[str]:
+        """在调用下载器前独立复核硬安全线，防止评分回归导致误删。"""
+        reasons: List[str] = []
+        total_size = float(observation.get("total_size") or observation.get("size") or 0)
+        downloaded = float(observation.get("downloaded") or 0)
+        if total_size <= 0 or downloaded < total_size:
+            reasons.append("incomplete")
+        if observation.get("hit_and_run"):
+            reasons.append("hit_and_run")
+        if float(observation.get("seeding_time") or 0) < float(task.min_seed_time or 0) * 3600:
+            reasons.append("min_seed_time")
+        tags = {
+            item.strip()
+            for item in (
+                observation.get("tags")
+                if isinstance(observation.get("tags"), list)
+                else str(observation.get("tags") or "").split(",")
+            )
+            if str(item).strip()
+        }
+        excluded = {item.strip() for item in str(task.delete_except_tags or "").split(",") if item.strip()}
+        if tags.intersection(excluded):
+            reasons.append("excluded_tag")
+        if float(observation.get("upload_speed") or 0) > 0 or float(
+            observation.get("upload_delta_since_check") or 0
+        ) > 0:
+            reasons.append("real_upload")
+        if observation.get("active_peers") is not None and float(observation.get("active_peers") or 0) > 0:
+            reasons.append("active_connection")
+        return reasons
+
+    def _update_smart_strategy_state(
+        self,
+        task: BrushTaskConfig,
+        observations: List[dict],
+        history: List[dict],
+        selection: Any,
+        learning_info: dict,
+        torrent_tasks: Dict[str, dict],
+    ) -> dict:
+        """更新影子候选恢复情况，并在到期时执行自动守门。"""
+        now = time.time()
+        candidates = self._get_task_data(task.id, "smart_candidates") or {}
+        if not isinstance(candidates, dict):
+            candidates = {}
+        observations_by_hash = {str(row.get("hash") or ""): row for row in observations}
+        for torrent_hash, candidate in list(candidates.items()):
+            if candidate.get("recovered") or now - float(candidate.get("planned_at") or 0) > 30 * 86400:
+                continue
+            observation = observations_by_hash.get(torrent_hash)
+            if not observation or now - float(candidate.get("planned_at") or 0) > 24 * 3600:
+                continue
+            if float(observation.get("uploaded") or 0) > float(candidate.get("uploaded") or 0):
+                candidate.update({"recovered": True, "recovered_at": now, "recovery_reason": "upload_delta"})
+                continue
+            demand_values: List[bool] = []
+            if observation.get("leechers") is not None:
+                demand_values.append(float(observation.get("leechers") or 0) > 0)
+            for row in sorted(
+                (item for item in history if str(item.get("hash") or "") == torrent_hash),
+                key=lambda item: float(item.get("at") or 0),
+                reverse=True,
+            ):
+                if len(demand_values) >= 3:
+                    break
+                if row.get("leechers") is not None:
+                    demand_values.append(float(row.get("leechers") or 0) > 0)
+            if sum(demand_values[:3]) >= int(task.smart_demand_confirmations or 2):
+                candidate.update({"recovered": True, "recovered_at": now, "recovery_reason": "trusted_demand"})
+
+        for result in selection.selected:
+            if result.torrent_hash not in candidates:
+                observation = observations_by_hash.get(result.torrent_hash, {})
+                candidates[result.torrent_hash] = {
+                    "hash": result.torrent_hash,
+                    "title": torrent_tasks.get(result.torrent_hash, {}).get("title"),
+                    "planned_at": now,
+                    "uploaded": float(observation.get("uploaded") or 0),
+                    "size": float(observation.get("size") or observation.get("total_size") or 0),
+                    "score": result.score,
+                    "recovered": False,
+                }
+        candidates = {
+            key: value
+            for key, value in candidates.items()
+            if now - float(value.get("planned_at") or 0) <= 30 * 86400
+        }
+        self._save_task_data(task.id, "smart_candidates", candidates)
+        candidate_count = len(candidates)
+        false_positive_count = sum(1 for row in candidates.values() if row.get("recovered"))
+        false_positive_rate = false_positive_count / candidate_count if candidate_count else 0.0
+        previous = self._get_task_data(task.id, "strategy_state") or {}
+        new_safety_violations = sum(
+            1
+            for result in selection.selected
+            if self._smart_runtime_safety_reasons(
+                task,
+                observations_by_hash.get(result.torrent_hash, {}),
+            )
+        )
+        safety_violations = int(previous.get("hard_safety_violations") or 0) + new_safety_violations
+
+        alert = None
+        if new_safety_violations:
+            task.smart_shadow_until = max(float(task.smart_shadow_until or 0), now) + 24 * 3600
+            task.smart_shadow_extensions += 1
+            alert = f"检测到 {new_safety_violations} 个硬安全违规，已阻止执行并延长 24 小时"
+            logger.error(
+                f"智能删种任务 [{task.name}] 检测到 {new_safety_violations} 个硬安全违规，"
+                "已阻止执行并延长影子观察 24 小时"
+            )
+            self._save_config()
+
+        if task.smart_shadow_until is not None and float(task.smart_shadow_until) <= now:
+            should_extend = safety_violations > 0 or (
+                candidate_count >= 10 and false_positive_rate > 0.15
+            )
+            if should_extend and task.smart_auto_activate:
+                task.smart_shadow_until = now + 24 * 3600
+                task.smart_shadow_extensions += 1
+                alert = (
+                    f"影子观察自动延长 24 小时：误判率 {false_positive_rate:.1%}，"
+                    f"硬安全违规 {safety_violations}"
+                )
+                logger.warning(f"智能删种任务 [{task.name}] {alert}")
+                self._save_config()
+            else:
+                task.smart_shadow_until = None
+                self._save_config()
+
+        shadow_remaining = max(float(task.smart_shadow_until or 0) - now, 0.0)
+        if task.smart_delete_paused:
+            mode, mode_label = "paused", "自动删除已暂停"
+        elif shadow_remaining > 0:
+            mode, mode_label = "shadow", "影子观察中"
+        else:
+            mode, mode_label = "active", "自动删除已启用"
+        state = {
+            "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else "8.0.0",
+            "profile": task.smart_profile,
+            "mode": mode,
+            "mode_label": mode_label,
+            "shadow_until": task.smart_shadow_until,
+            "shadow_remaining_seconds": shadow_remaining,
+            "shadow_extensions": task.smart_shadow_extensions,
+            "learning_confidence": learning_info.get("confidence", 0),
+            "learning_sample_count": learning_info.get("sample_count", 0),
+            "false_positive_count": false_positive_count,
+            "candidate_count": candidate_count,
+            "false_positive_rate": round(false_positive_rate, 4),
+            "hard_safety_violations": safety_violations,
+            "capacity_trigger_percent": task.smart_capacity_trigger_percent,
+            "capacity_target_percent": task.smart_capacity_target_percent,
+            "estimated_freed_bytes": selection.estimated_freed_bytes,
+            "pending_delete_count": len(selection.selected),
+            "alert": alert,
+            "updated_at": now,
+        }
+        self._save_task_data(task.id, "strategy_state", state)
+        return state
 
     def __delete_torrent_for_evaluate_conditions(
         self,
@@ -3525,8 +4322,16 @@ class BrushFlow(_PluginBase):
             downloaded = torrent.get("downloaded") or 0
             total_size = torrent.get("total_size") or 0
             upload_speed = torrent.get("upspeed") or torrent.get("upload_speed") or 0
-            seeders = torrent.get("num_seeds") or torrent.get("seeders") or 0
-            leechers = torrent.get("num_leechs") or torrent.get("leechers") or 0
+            tracker_seeders = torrent.get("num_complete")
+            if tracker_seeders is None or float(tracker_seeders) < 0:
+                tracker_seeders = torrent.get("seeders")
+            tracker_leechers = torrent.get("num_incomplete")
+            if tracker_leechers is None or float(tracker_leechers) < 0:
+                tracker_leechers = torrent.get("leechers")
+            seeders = tracker_seeders if tracker_seeders is not None and float(tracker_seeders) >= 0 else None
+            leechers = tracker_leechers if tracker_leechers is not None and float(tracker_leechers) >= 0 else None
+            active_peers = torrent.get("num_leechs")
+            active_peers = active_peers if active_peers is not None and float(active_peers) >= 0 else None
             availability = torrent.get("availability") or 0
             tags = torrent.get("tags") or ""
             tracker = torrent.get("tracker") or ""
@@ -3548,8 +4353,9 @@ class BrushFlow(_PluginBase):
             ratio = getattr(torrent, "ratio", 0) or 0
             uploaded = int(downloaded * ratio)
             upload_speed = getattr(torrent, "upload_speed", 0) or getattr(torrent, "upspeed", 0) or 0
-            seeders = getattr(torrent, "seeders", 0) or 0
-            leechers = getattr(torrent, "leechers", 0) or 0
+            seeders = getattr(torrent, "seeders", None)
+            leechers = getattr(torrent, "leechers", None)
+            active_peers = getattr(torrent, "peers_connected", None)
             availability = getattr(torrent, "availability", 0) or 0
             tags = getattr(torrent, "labels", None) or ""
             tracker_list = getattr(torrent, "tracker_list", None)
@@ -3566,7 +4372,7 @@ class BrushFlow(_PluginBase):
             "upload_speed": upload_speed,
             "seeders": seeders,
             "leechers": leechers,
-            "active_peers": leechers,
+            "active_peers": active_peers,
             "availability": availability,
             "iatime": iatime,
             "dltime": dltime,

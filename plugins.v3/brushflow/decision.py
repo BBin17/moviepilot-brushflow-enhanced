@@ -134,9 +134,19 @@ def detect_invalid_seed(
     )
 
 
+def _optional_count(data: Mapping[str, Any], *names: str) -> Optional[float]:
+    """读取 Tracker 人数；缺失、None 和负数均表示未知，而不是 0。"""
+    for name in names:
+        if name not in data or data.get(name) is None:
+            continue
+        value = _number(data.get(name), -1.0)
+        return max(value, 0.0) if value >= 0 else None
+    return None
+
+
 @dataclass(frozen=True)
 class TorrentObservation:
-    """一次种子实时状态快照，单位统一为字节、秒和字节/秒。"""
+    """一次种子观测。人数为 ``None`` 时代表 Tracker 未提供数据。"""
 
     torrent_hash: str = ""
     title: str = ""
@@ -149,28 +159,32 @@ class TorrentObservation:
     inactive_time: float = 0.0
     avg_upload_speed: float = 0.0
     upload_speed: float = 0.0
-    seeders: float = 0.0
-    leechers: float = 0.0
-    active_peers: float = 0.0
+    seeders: Optional[float] = None
+    leechers: Optional[float] = None
+    active_peers: Optional[float] = None
     availability: float = 0.0
     hit_and_run: bool = False
     tags: tuple[str, ...] = ()
+    upload_delta_1h: float = 0.0
+    upload_delta_6h: float = 0.0
+    upload_delta_24h: float = 0.0
+    upload_delta_since_check: float = 0.0
+    yield_per_gb_1h: float = 0.0
+    yield_per_gb_6h: float = 0.0
+    yield_per_gb_24h: float = 0.0
+    learned_potential: float = 0.0
+    demand_confirmations: int = 0
+    low_value_confirmations: int = 0
+    low_value_span_minutes: float = 0.0
+    capacity_pressure: float = 0.0
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "TorrentObservation":
-        """兼容 qB 字段、插件状态字段和测试简化字段。"""
         total_size = _positive(data.get("total_size", data.get("size")))
         downloaded = _positive(data.get("downloaded"))
         progress = _number(data.get("progress"), -1)
         if progress < 0:
             progress = (downloaded / total_size * 100) if total_size else 0.0
-        # qB 的 leechers/seeders 通常叫 num_leechs/num_seeds；某些下载器
-        # 适配层则已经转换为 peers/seeders，因此这里按多个别名读取。
-        leechers = _positive(
-            data.get("leechers", data.get("num_leechs", data.get("peers")))
-        )
-        seeders = _positive(data.get("seeders", data.get("num_seeds")))
-        active_peers = _positive(data.get("active_peers", leechers))
         return cls(
             torrent_hash=str(data.get("hash", data.get("torrent_hash", "")) or ""),
             title=str(data.get("title", data.get("name", "")) or ""),
@@ -181,51 +195,75 @@ class TorrentObservation:
             progress=max(min(progress, 100.0), 0.0),
             seeding_time=_positive(data.get("seeding_time")),
             inactive_time=_positive(data.get("inactive_time", data.get("iatime"))),
-            avg_upload_speed=_positive(
-                data.get("avg_upload_speed", data.get("avg_upspeed"))
-            ),
+            avg_upload_speed=_positive(data.get("avg_upload_speed", data.get("avg_upspeed"))),
             upload_speed=_positive(data.get("upload_speed", data.get("upspeed"))),
-            seeders=seeders,
-            leechers=leechers,
-            active_peers=active_peers,
+            seeders=_optional_count(data, "seeders", "num_seeds"),
+            leechers=_optional_count(data, "leechers", "num_leechs", "peers"),
+            active_peers=_optional_count(data, "active_peers", "connected_peers"),
             availability=_positive(data.get("availability")),
             hit_and_run=bool(data.get("hit_and_run", False)),
             tags=_tags(data.get("tags")),
+            upload_delta_1h=_positive(data.get("upload_delta_1h")),
+            upload_delta_6h=_positive(data.get("upload_delta_6h")),
+            upload_delta_24h=_positive(data.get("upload_delta_24h")),
+            upload_delta_since_check=_positive(
+                data.get("upload_delta_since_check", data.get("real_upload_delta"))
+            ),
+            yield_per_gb_1h=_positive(data.get("yield_per_gb_1h")),
+            yield_per_gb_6h=_positive(data.get("yield_per_gb_6h")),
+            yield_per_gb_24h=_positive(data.get("yield_per_gb_24h")),
+            learned_potential=max(0.0, min(_number(data.get("learned_potential")), 15.0)),
+            demand_confirmations=max(int(_number(data.get("demand_confirmations"))), 0),
+            low_value_confirmations=max(int(_number(data.get("low_value_confirmations"))), 0),
+            low_value_span_minutes=_positive(data.get("low_value_span_minutes")),
+            capacity_pressure=max(0.0, min(_number(data.get("capacity_pressure")), 1.0)),
         )
 
     @property
     def completed(self) -> bool:
-        """只有明确完成的种子才允许进入智能删种候选。"""
         return self.progress >= 99.999 or (
             self.total_size > 0 and self.downloaded >= self.total_size
         )
 
+    @property
+    def has_real_upload(self) -> bool:
+        return self.upload_speed > 0 or self.upload_delta_since_check > 0
+
 
 @dataclass(frozen=True)
 class SmartPolicy:
-    """智能模式策略。所有数值都已经是运行单位。"""
+    """8.0 智能收益策略。所有容量值使用字节。"""
 
+    profile: str = "balanced"
     min_seed_time_hours: float = 0.0
     min_inactive_minutes: float = 0.0
     smart_cold_inactive_minutes: float = 360.0
     protect_active_demand: bool = True
+    demand_confirmations: int = 2
+    low_value_confirmations: int = 3
+    low_value_span_minutes: float = 30.0
     min_ratio: float = 0.0
     min_uploaded_gb: float = 0.0
     ratio_target: float = 2.0
-    ratio_weight: float = 18.0
+    ratio_weight: float = 5.0
     score_threshold: float = 40.0
     score_margin: float = 0.0
+    capacity_trigger_percent: float = 90.0
+    capacity_target_percent: float = 85.0
     max_delete_per_run: int = 3
     max_delete_percent_day: float = 5.0
-    allow_proactive_delete: bool = True
+    max_delete_capacity_percent_run: float = 4.0
+    max_delete_capacity_percent_day: float = 8.0
+    max_delete_gb_per_run: float = 0.0
+    max_delete_gb_per_day: float = 0.0
+    allow_proactive_delete: bool = False
     required_conditions: bool = False
     excluded_tags: tuple[str, ...] = ()
+    engine_version: str = "8.0"
 
 
 @dataclass(frozen=True)
 class DecisionResult:
-    """单个种子的可解释结果。"""
-
     torrent_hash: str
     action: str
     score: float
@@ -239,28 +277,25 @@ class DecisionResult:
 
 @dataclass(frozen=True)
 class SelectionResult:
-    """一轮删种计划及其限额原因。"""
-
     selected: tuple[DecisionResult, ...] = ()
     evaluated: tuple[DecisionResult, ...] = ()
     reason_codes: tuple[str, ...] = ()
     pressure: bool = False
+    target_size: Optional[float] = None
+    estimated_freed_bytes: float = 0.0
 
 
 @dataclass(frozen=True)
 class CandidateDecision:
-    """新增候选的可解释价值评分。"""
-
     score: float
     accepted: bool
     reason_codes: tuple[str, ...] = ()
     contributions: Mapping[str, float] = field(default_factory=dict)
+    confidence: float = 0.0
 
 
 @dataclass(frozen=True)
 class RankedCandidate:
-    """保留原始候选对象，方便插件把对象交回下载链路。"""
-
     candidate: Any
     decision: CandidateDecision
 
@@ -271,14 +306,50 @@ def _read_candidate(candidate: Any, name: str, default: Any = None) -> Any:
     return getattr(candidate, name, default)
 
 
+def _candidate_optional_count(candidate: Any, *names: str) -> Optional[float]:
+    marker = object()
+    for name in names:
+        value = _read_candidate(candidate, name, marker)
+        if value is marker or value is None:
+            continue
+        number = _number(value, -1.0)
+        return max(number, 0.0) if number >= 0 else None
+    return None
+
+
 def _candidate_age_minutes(candidate: Any) -> float:
     value = _number(_read_candidate(candidate, "age_minutes"), -1)
     if value >= 0:
         return value
-    elapsed = _number(_read_candidate(candidate, "date_elapsed"), -1)
-    if elapsed >= 0:
-        return elapsed
-    return 0.0
+    return max(_number(_read_candidate(candidate, "date_elapsed"), 0.0), 0.0)
+
+
+def capacity_selection_policy(
+    profile: str,
+    occupancy_ratio: float,
+    base_count: int,
+    base_min_score: float,
+) -> tuple[int, float, str]:
+    """按任务自身容量占用返回新增上限和门槛。"""
+    occupancy = max(_number(occupancy_ratio), 0.0)
+    tier = "under_70"
+    balanced = (5, 30.0)
+    if occupancy >= 0.90:
+        tier, balanced = "over_90", (1, 50.0)
+    elif occupancy >= 0.85:
+        tier, balanced = "85_90", (2, 42.0)
+    elif occupancy >= 0.70:
+        tier, balanced = "70_85", (3, 35.0)
+    profile = str(profile or "balanced").lower()
+    if profile == "conservative":
+        return min(balanced[0], 2), max(balanced[1], 40.0), tier
+    if profile == "aggressive":
+        counts = {"under_70": 8, "70_85": 5, "85_90": 3, "over_90": 1}
+        floors = {"under_70": 22.0, "70_85": 30.0, "85_90": 37.0, "over_90": 45.0}
+        return counts[tier], floors[tier], tier
+    if profile == "custom":
+        return min(max(int(base_count or 1), 1), balanced[0]), max(float(base_min_score), balanced[1]), tier
+    return balanced[0], balanced[1], tier
 
 
 def candidate_score(
@@ -286,107 +357,133 @@ def candidate_score(
     *,
     share_ratio_gap: float = 0.0,
     share_ratio_target: float = 2.0,
+    occupancy_ratio: float = 0.0,
+    profile: str = "balanced",
+    normal_threshold: float = 30.0,
+    learned_yield_score: Optional[float] = None,
+    learned_expected_yield: Optional[float] = None,
+    learned_median_yield: Optional[float] = None,
+    learning_confidence: float = 0.0,
 ) -> CandidateDecision:
-    """给站点候选种子打分，分数越高越值得优先新增。
-
-    分享率越接近目标，选种越保守；缺口较大时，免费/双倍、下载需求、
-    稀缺性和“小体积高需求”会获得更高权重，避免容量被没有上传潜力的
-    大种子占满。
-    """
-    download_factor = _number(_read_candidate(candidate, "downloadvolumefactor"), 1)
-    upload_factor = _number(_read_candidate(candidate, "uploadvolumefactor"), 1)
-    seeders = _positive(_read_candidate(candidate, "seeders"))
-    leechers = _positive(
-        _read_candidate(candidate, "leechers", _read_candidate(candidate, "num_leechs"))
-    )
+    """计算 8.0 选种收益分，并保留未知 Tracker 人数的中性语义。"""
+    download_factor = _number(_read_candidate(candidate, "downloadvolumefactor"), 1.0)
+    upload_factor = _number(_read_candidate(candidate, "uploadvolumefactor"), 1.0)
+    seeders = _candidate_optional_count(candidate, "seeders", "num_seeds")
+    leechers = _candidate_optional_count(candidate, "leechers", "num_leechs", "peers")
     size = _positive(_read_candidate(candidate, "size"))
-    hit_and_run = bool(_read_candidate(candidate, "hit_and_run", False))
-
-    ratio_target = max(_positive(share_ratio_target, 2.0), 1.0)
-    ratio_gap_factor = min(max(_number(share_ratio_gap) / ratio_target, 0.0), 1.0)
-
-    promotion = 0.0
-    if download_factor == 0:
-        promotion += 18.0 + 6.0 * ratio_gap_factor
-    if upload_factor >= 2:
-        promotion += 8.0 + 4.0 * ratio_gap_factor
-
-    demand = min(math.log1p(leechers) / math.log1p(50), 1.0) * (28.0 + 8.0 * ratio_gap_factor)
-    if seeders <= 0:
-        scarcity = 8.0
-    elif seeders <= 3:
-        scarcity = 25.0
-    elif seeders <= 10:
-        scarcity = 18.0
-    elif seeders <= 20:
-        scarcity = 8.0
-    else:
-        scarcity = 0.0
-
-    age_minutes = _candidate_age_minutes(candidate)
-    freshness = max(0.0, 1.0 - min(age_minutes / (7 * 24 * 60), 1.0)) * 15
-    size_penalty = min(size / (100 * 1024**3), 1.0) * (4.0 + 2.0 * (1.0 - ratio_gap_factor))
     size_gb = size / 1024**3 if size else 0.0
-    size_efficiency = 0.0
-    if leechers > 0 and size_gb > 0:
-        demand_per_gb = math.log1p(leechers) / math.log1p(max(size_gb, 1.0))
-        size_efficiency = min(max(demand_per_gb, 0.0), 1.0) * 8.0 * ratio_gap_factor
-    # 容量是刷流任务的稀缺资源。没有下载需求的大种子即使是免费种，
-    # 也不应该仅凭促销标签挤掉小而有需求的候选。
-    capacity_cost = 0.0
-    if size_gb > 0:
-        capacity_cost = min(math.log1p(size_gb) / math.log1p(100), 1.0) * (
-            8.0 + 5.0 * (1.0 - ratio_gap_factor)
-        )
-        if leechers > 0:
-            capacity_cost *= 0.55
-    hr_penalty = 20.0 if hit_and_run else 0.0
+    confidence = max(0.0, min(_number(learning_confidence), 1.0))
+    explicit_trust = _read_candidate(candidate, "demand_trusted", None)
+    trusted_demand = bool(explicit_trust) if explicit_trust is not None else bool(leechers and leechers > 0)
+
+    promotion = min((12.0 if download_factor == 0 else 0.0) + (8.0 if upload_factor >= 2 else 0.0), 20.0)
+    demand = 0.0
+    if trusted_demand and leechers is not None:
+        demand = min(math.log1p(leechers) / math.log1p(50), 1.0) * 25.0
+    scarcity = 0.0
+    if seeders is not None:
+        scarcity = max(0.0, 1.0 - min(seeders / 20.0, 1.0)) * 15.0
+    age_minutes = _candidate_age_minutes(candidate)
+    freshness = max(0.0, 1.0 - min(age_minutes / (7 * 24 * 60), 1.0)) * 10.0
+    if learned_yield_score is None:
+        learned_yield_score = _number(_read_candidate(candidate, "learned_yield_score"), 0.0)
+    local_yield = max(0.0, min(_number(learned_yield_score), 25.0)) * confidence
+
+    efficiency = 0.0
+    if trusted_demand and size_gb > 0 and leechers is not None:
+        efficiency += min(math.log1p(leechers) / math.log1p(max(size_gb, 1.0)), 1.0) * 10.0
+    if confidence > 0 and local_yield > 0:
+        efficiency += min(local_yield / 25.0, 1.0) * 5.0
+    efficiency = min(efficiency, 15.0)
+
+    occupancy = max(0.0, min(_number(occupancy_ratio), 1.5))
+    size_factor = min(math.log1p(size_gb) / math.log1p(100), 1.0) if size_gb else 0.0
+    pressure_factor = 0.35 + min(occupancy / 0.90, 1.0) * 0.65
+    capacity_cost = min(size_factor * pressure_factor * 30.0 * (0.45 if trusted_demand else 1.0), 30.0)
+
     contributions = {
+        "base": 10.0,
         "promotion": round(promotion, 2),
         "demand": round(demand, 2),
         "scarcity": round(scarcity, 2),
         "freshness": round(freshness, 2),
-        "size": round(-size_penalty, 2),
-        "size_efficiency": round(size_efficiency, 2),
+        "local_yield": round(local_yield, 2),
+        "size_efficiency": round(efficiency, 2),
         "capacity_cost": round(-capacity_cost, 2),
-        "hr_risk": round(-hr_penalty, 2),
     }
-    # 基础分不再等于默认门槛 25，避免所有候选天然通过智能选种。
-    score = max(0.0, min(100.0, 10.0 + sum(contributions.values())))
-    reasons = []
+    score = max(0.0, min(100.0, sum(contributions.values())))
+    reasons: list[str] = []
+    accepted = True
+    if leechers is None:
+        reasons.append("tracker_demand_unknown")
+    elif trusted_demand:
+        reasons.append("trusted_download_demand")
+    if seeders is None:
+        reasons.append("tracker_seeders_unknown")
+    elif scarcity > 0:
+        reasons.append("trusted_scarcity")
     if promotion:
         reasons.append("promotion")
-    if leechers > 0:
-        reasons.append("download_demand")
-    if seeders <= 10:
-        reasons.append("scarcity")
     if age_minutes <= 24 * 60:
         reasons.append("fresh")
-    if hit_and_run:
-        reasons.append("hr_risk")
+
+    guarded_profile = str(profile or "balanced").lower() in {"balanced", "conservative", "custom"}
+    if guarded_profile and size_gb > 50 and not trusted_demand:
+        accepted = False
+        reasons.append("large_without_trusted_demand")
+    elif guarded_profile and 20 <= size_gb <= 50 and not trusted_demand:
+        if not (download_factor == 0 and upload_factor >= 2):
+            accepted = False
+            reasons.append("medium_no_demand_requires_double_free")
+        elif confidence <= 0:
+            if score < normal_threshold + 15:
+                accepted = False
+                reasons.append("medium_no_demand_cold_start")
+        elif learned_expected_yield is None or learned_median_yield is None or learned_expected_yield < learned_median_yield:
+            accepted = False
+            reasons.append("medium_no_demand_below_learned_median")
+
     return CandidateDecision(
         score=round(score, 2),
-        accepted=True,
+        accepted=accepted,
         reason_codes=tuple(reasons) or ("baseline",),
         contributions=contributions,
+        confidence=round(confidence, 4),
     )
 
 
 def rank_selection_candidates(
     candidates: Sequence[Any],
     *,
-    min_score: float = 25.0,
+    min_score: float = 30.0,
     max_count: int = 5,
     share_ratio_gap: float = 0.0,
     share_ratio_target: float = 2.0,
+    occupancy_ratio: float = 0.0,
+    profile: str = "balanced",
+    learning: Optional[Mapping[str, Mapping[str, float]]] = None,
+    learning_confidence: float = 0.0,
+    learned_median_yield: Optional[float] = None,
 ) -> tuple[RankedCandidate, ...]:
-    """按智能选种分数排序并限制本轮新增数量。"""
-    ranked = []
+    ranked: list[RankedCandidate] = []
     for candidate in candidates:
+        candidate_key = str(
+            _read_candidate(candidate, "enclosure", "")
+            or _read_candidate(candidate, "page_url", "")
+            or _read_candidate(candidate, "title", "")
+        )
+        learned = (learning or {}).get(candidate_key, {})
         decision = candidate_score(
             candidate,
             share_ratio_gap=share_ratio_gap,
             share_ratio_target=share_ratio_target,
+            occupancy_ratio=occupancy_ratio,
+            profile=profile,
+            normal_threshold=min_score,
+            learned_yield_score=learned.get("score"),
+            learned_expected_yield=learned.get("expected"),
+            learned_median_yield=learned_median_yield,
+            learning_confidence=learning_confidence,
         )
         if decision.score < min_score:
             decision = CandidateDecision(
@@ -394,13 +491,14 @@ def rank_selection_candidates(
                 False,
                 decision.reason_codes + ("below_selection_threshold",),
                 decision.contributions,
+                decision.confidence,
             )
         if decision.accepted:
             ranked.append(RankedCandidate(candidate, decision))
     ranked.sort(
         key=lambda item: (
             item.decision.score,
-            _number(_read_candidate(item.candidate, "leechers")),
+            _candidate_optional_count(item.candidate, "leechers", "num_leechs") or -1,
             -_positive(_read_candidate(item.candidate, "size")),
         ),
         reverse=True,
@@ -414,29 +512,18 @@ def adaptive_selection_policy(
     current_ratio: Optional[float],
     target_ratio: Optional[float],
 ) -> tuple[int, float, float]:
-    """按站点分享率缺口返回本轮新增上限、最低分和缺口。
-
-    这是防止刷流任务在低分享率时不够积极、接近目标时又继续堆积的
-    滞后控制：分享率越低，允许的新增越多且评分门槛越宽；接近目标时
-    自动收紧。没有站点统计时保持原配置，不绕过站点数据等待保护。
-    """
+    """目标未达时最多放宽 5 分；达标后恢复普通门槛且继续运行。"""
     count = max(int(base_count or 1), 1)
     minimum = max(float(base_min_score or 0.0), 0.0)
     target = _positive(target_ratio)
     current = _number(current_ratio, -1.0)
     if target <= 0 or current < 0:
         return count, minimum, 0.0
-    if current >= target:
-        return 1, min(100.0, minimum + 10.0), 0.0
-
     gap = max(target - current, 0.0)
-    if gap >= max(1.0, target * 0.5):
-        return count, max(20.0, minimum - 5.0), gap
-    if gap >= target * 0.25:
-        return max(3, math.ceil(count * 0.6)), minimum, gap
-    if gap >= target * 0.10:
-        return max(2, math.ceil(count * 0.4)), min(100.0, minimum + 5.0), gap
-    return 1, min(100.0, minimum + 10.0), gap
+    if gap <= 0:
+        return count, minimum, 0.0
+    relaxation = min(gap / target, 1.0) * 5.0
+    return count, max(0.0, minimum - relaxation), gap
 
 
 def _history_for(torrent_hash: str, history: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
@@ -445,49 +532,133 @@ def _history_for(torrent_hash: str, history: Sequence[Mapping[str, Any]]) -> lis
     return rows
 
 
+def _demand_confirmations(
+    observation: TorrentObservation,
+    history: Sequence[Mapping[str, Any]],
+) -> int:
+    if observation.demand_confirmations > 0:
+        return observation.demand_confirmations
+    values: list[bool] = []
+    if observation.leechers is not None:
+        values.append(observation.leechers > 0)
+    for row in _history_for(observation.torrent_hash, history):
+        if len(values) >= 3:
+            break
+        count = _optional_count(row, "leechers", "num_leechs")
+        if count is not None:
+            values.append(count > 0)
+    return sum(values[:3])
+
+
+def _confirmation_state(
+    observation: TorrentObservation,
+    history: Sequence[Mapping[str, Any]],
+    required: int,
+) -> tuple[int, float]:
+    if observation.low_value_confirmations > 0:
+        return observation.low_value_confirmations, observation.low_value_span_minutes
+    now = time.time()
+    low_rows = []
+    for row in _history_for(observation.torrent_hash, history):
+        if not bool(row.get("low_value")):
+            break
+        low_rows.append(row)
+    confirmations = 1 + len(low_rows)
+    if not low_rows:
+        return confirmations, 0.0
+    earliest = min(_number(row.get("at"), now) for row in low_rows)
+    return confirmations, max((now - earliest) / 60.0, 0.0)
+
+
 def retention_score(
+    observation: TorrentObservation,
+    history: Sequence[Mapping[str, Any]] = (),
+    *,
+    ratio_target: float = 2.0,
+    ratio_weight: float = 5.0,
+) -> tuple[float, dict[str, float]]:
+    """计算保留价值；累计分享率仅在近期有上传时贡献最多 5 分。"""
+    yields = (
+        observation.yield_per_gb_1h,
+        observation.yield_per_gb_6h,
+        observation.yield_per_gb_24h,
+    )
+    yield_signal = (
+        min(math.log1p(yields[0]) / math.log1p(0.05), 1.0) * 12.0
+        + min(math.log1p(yields[1]) / math.log1p(0.03), 1.0) * 8.0
+        + min(math.log1p(yields[2]) / math.log1p(0.02), 1.0) * 5.0
+    )
+    demand_confirmations = _demand_confirmations(observation, history)
+    trusted_demand = bool(observation.leechers and demand_confirmations >= 2)
+    activity_signal = 12.0 if trusted_demand else 0.0
+    if observation.active_peers and observation.active_peers > 0:
+        activity_signal = max(activity_signal, 18.0)
+
+    scarcity_signal = 0.0
+    if observation.seeders is not None:
+        scarcity_signal = max(0.0, 1.0 - min(observation.seeders / 20.0, 1.0)) * 15.0
+        if observation.availability and observation.availability < 1.0:
+            scarcity_signal = min(15.0, scarcity_signal + 3.0)
+
+    learned_signal = max(0.0, min(observation.learned_potential, 15.0))
+    trend_signal = 0.0
+    if yields[2] > 0:
+        recent = yields[0] or yields[1]
+        if recent > yields[2] * 1.25:
+            trend_signal = 8.0
+        elif recent < yields[2] * 0.5:
+            trend_signal = -6.0
+    ratio_signal = 0.0
+    if max(yields) > 0 or observation.upload_delta_24h > 0:
+        target = max(_positive(ratio_target, 2.0), 1.0)
+        ratio_signal = min(observation.ratio / target, 1.0) * min(max(_number(ratio_weight), 0.0), 5.0)
+    inactivity_penalty = min(observation.inactive_time / (7 * 86400), 1.0) * 10.0
+    size_factor = min(observation.total_size / (100 * 1024**3), 1.0)
+    capacity_cost = size_factor * (5.0 + 10.0 * observation.capacity_pressure)
+    contributions = {
+        "recent_yield": round(yield_signal, 2),
+        "activity": round(activity_signal, 2),
+        "scarcity": round(scarcity_signal, 2),
+        "learned_potential": round(learned_signal, 2),
+        "trend": round(trend_signal, 2),
+        "ratio": round(ratio_signal, 2),
+        "inactivity": round(-inactivity_penalty, 2),
+        "capacity_cost": round(-capacity_cost, 2),
+    }
+    score = max(0.0, min(100.0, 20.0 + sum(contributions.values())))
+    return round(score, 2), contributions
+
+
+def legacy_retention_score(
     observation: TorrentObservation,
     history: Sequence[Mapping[str, Any]] = (),
     *,
     ratio_target: float = 2.0,
     ratio_weight: float = 18.0,
 ) -> tuple[float, dict[str, float]]:
-    """计算 0-100 的保留价值分数，并返回各信号贡献。
-
-    分数越高代表越值得继续做种：上传需求、当前下载者和稀缺性会提高
-    分数；长期闲置、上传很低、做种资源充足和较大体积会降低分数。分享
-    率只做弱信号，不能单独触发删除。
-    """
+    """保留 7.3 的实时速度/人数/分享率评分，供一个大版本周期回退。"""
     upload_rate = max(observation.upload_speed, observation.avg_upload_speed)
-    upload_signal = min(math.log1p(upload_rate) / math.log1p(1024 * 1024), 1.0) * 25
-    peer_signal = min(math.log1p(max(observation.active_peers, observation.leechers)) / math.log1p(20), 1.0) * 20
-
-    # 做种越少越稀缺；availability 小于 1 表示可能无法组成完整副本，额外保护。
-    scarcity_signal = max(0.0, 1.0 - min(observation.seeders / 20.0, 1.0)) * 22
-    if observation.availability and observation.availability < 1.0:
-        scarcity_signal = min(30.0, scarcity_signal + 8.0)
-
-    effective_ratio_target = max(_positive(ratio_target, 2.0), 1.0)
-    ratio_signal = min(observation.ratio / effective_ratio_target, 1.0) * max(
+    upload_signal = min(math.log1p(upload_rate) / math.log1p(1024 * 1024), 1.0) * 25.0
+    peers = max(observation.active_peers or 0.0, observation.leechers or 0.0)
+    peer_signal = min(math.log1p(peers) / math.log1p(20), 1.0) * 20.0
+    scarcity_signal = 0.0
+    if observation.seeders is not None:
+        scarcity_signal = max(0.0, 1.0 - min(observation.seeders / 20.0, 1.0)) * 22.0
+    target = max(_positive(ratio_target, 2.0), 1.0)
+    ratio_signal = min(observation.ratio / target, 1.0) * max(
         0.0, min(_number(ratio_weight, 18.0), 40.0)
     )
-    inactive_penalty = min(observation.inactive_time / (7 * 24 * 3600), 1.0) * 15
-    age_penalty = min(observation.seeding_time / (30 * 24 * 3600), 1.0) * 5
-    size_penalty = min(observation.total_size / (100 * 1024**3), 1.0) * 5
-
+    inactive_penalty = min(observation.inactive_time / (7 * 86400), 1.0) * 15.0
+    age_penalty = min(observation.seeding_time / (30 * 86400), 1.0) * 5.0
+    size_penalty = min(observation.total_size / (100 * 1024**3), 1.0) * 5.0
     trend_signal = 0.0
     previous = _history_for(observation.torrent_hash, history)
     if previous:
-        previous_row = previous[0]
-        previous_rate = _positive(
-            previous_row.get("upload_speed", previous_row.get("avg_upload_speed"))
-        )
-        previous_peers = _positive(previous_row.get("active_peers", previous_row.get("leechers")))
-        if upload_rate > previous_rate * 1.15 or observation.active_peers > previous_peers:
+        previous_rate = _positive(previous[0].get("upload_speed", previous[0].get("avg_upload_speed")))
+        if upload_rate > previous_rate * 1.15:
             trend_signal = 8.0
-        elif upload_rate < previous_rate * 0.5 and observation.active_peers <= previous_peers:
+        elif upload_rate < previous_rate * 0.5:
             trend_signal = -5.0
-
     contributions = {
         "upload_demand": round(upload_signal, 2),
         "peer_demand": round(peer_signal, 2),
@@ -508,46 +679,55 @@ def evaluate_candidate(
     history: Sequence[Mapping[str, Any]] = (),
     legacy_conditions_met: bool = True,
 ) -> DecisionResult:
-    """对单个种子应用硬安全线和保留价值评分。"""
     if not isinstance(observation, TorrentObservation):
         observation = TorrentObservation.from_mapping(observation)
+    blocked = lambda code: DecisionResult(observation.torrent_hash, "blocked", 100.0, (code,))
     if not observation.completed:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("incomplete",))
+        return blocked("incomplete")
     if observation.hit_and_run:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("hit_and_run",))
+        return blocked("hit_and_run")
     if policy.min_seed_time_hours <= 0:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("missing_min_seed_time",))
+        return blocked("missing_min_seed_time")
     if observation.seeding_time < policy.min_seed_time_hours * 3600:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("min_seed_time",))
-    if policy.protect_active_demand and max(observation.active_peers, observation.leechers) > 0:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("active_demand",))
-    if (
-        policy.smart_cold_inactive_minutes > 0
-        and observation.inactive_time < policy.smart_cold_inactive_minutes * 60
+        return blocked("min_seed_time")
+    if set(policy.excluded_tags).intersection(observation.tags):
+        return blocked("excluded_tag")
+    if observation.has_real_upload:
+        return blocked("real_upload")
+    if observation.active_peers is not None and observation.active_peers > 0:
+        return blocked("active_connection")
+    if policy.protect_active_demand and observation.leechers and (
+        _demand_confirmations(observation, history) >= max(policy.demand_confirmations, 1)
     ):
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("smart_cold_cooldown",))
-    if policy.min_inactive_minutes > 0 and observation.inactive_time < policy.min_inactive_minutes * 60:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("min_inactive_time",))
+        return blocked("trusted_active_demand")
+    inactive_floor = max(policy.smart_cold_inactive_minutes, policy.min_inactive_minutes)
+    if inactive_floor > 0 and observation.inactive_time < inactive_floor * 60:
+        return blocked("smart_cold_cooldown")
     if policy.min_ratio > 0 and observation.ratio < policy.min_ratio:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("min_ratio",))
+        return blocked("min_ratio")
     if policy.min_uploaded_gb > 0 and observation.uploaded < policy.min_uploaded_gb * 1024**3:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("min_uploaded",))
-    excluded = set(policy.excluded_tags)
-    if excluded.intersection(observation.tags):
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("excluded_tag",))
+        return blocked("min_uploaded")
     if policy.required_conditions and not legacy_conditions_met:
-        return DecisionResult(observation.torrent_hash, "blocked", 100.0, ("required_condition",))
+        return blocked("required_condition")
 
-    score, contributions = retention_score(
+    scorer = legacy_retention_score if policy.engine_version.startswith("7.3") else retention_score
+    score, contributions = scorer(
         observation,
         history,
         ratio_target=policy.ratio_target,
         ratio_weight=policy.ratio_weight,
     )
     cutoff = max(0.0, policy.score_threshold - max(policy.score_margin, 0.0))
-    if score <= cutoff:
-        return DecisionResult(observation.torrent_hash, "candidate", score, ("low_retention_value",), contributions)
-    return DecisionResult(observation.torrent_hash, "keep", score, ("valuable_seed",), contributions)
+    if score > cutoff:
+        return DecisionResult(observation.torrent_hash, "keep", score, ("valuable_seed",), contributions)
+    required = 1 if policy.engine_version.startswith("7.3") else max(policy.low_value_confirmations, 1)
+    confirmations, span = _confirmation_state(observation, history, required)
+    required_span = 0.0 if policy.engine_version.startswith("7.3") else max(policy.low_value_span_minutes, 0.0)
+    if confirmations < required or span < required_span:
+        details = dict(contributions)
+        details.update({"confirmations": float(confirmations), "confirmation_span_minutes": round(span, 2)})
+        return DecisionResult(observation.torrent_hash, "watch", score, ("low_value_unconfirmed",), details)
+    return DecisionResult(observation.torrent_hash, "candidate", score, ("low_retention_value",), contributions)
 
 
 def select_deletions(
@@ -560,12 +740,23 @@ def select_deletions(
     disk_limit: Optional[float] = None,
     history: Sequence[Mapping[str, Any]] = (),
     deleted_today: int = 0,
+    deleted_today_bytes: float = 0.0,
     legacy_conditions: Optional[Mapping[str, bool]] = None,
 ) -> SelectionResult:
-    """在容量压力和删除限额下生成一轮实际删种计划。"""
     normalized = [
         item if isinstance(item, TorrentObservation) else TorrentObservation.from_mapping(item)
         for item in observations
+    ]
+    trigger = max_size
+    if trigger is None and disk_limit:
+        trigger = disk_limit * max(min(policy.capacity_trigger_percent, 100.0), 0.0) / 100.0
+    pressure = bool(trigger is not None and current_size >= trigger)
+    if policy.allow_proactive_delete:
+        pressure = True
+    capacity_pressure = min(current_size / trigger, 1.0) if trigger else (1.0 if pressure else 0.0)
+    normalized = [
+        TorrentObservation(**{**item.__dict__, "capacity_pressure": capacity_pressure})
+        for item in normalized
     ]
     evaluated = tuple(
         evaluate_candidate(
@@ -576,59 +767,75 @@ def select_deletions(
         )
         for item in normalized
     )
-
-    pressure = False
-    if max_size is not None and current_size >= max_size:
-        pressure = True
-    elif disk_limit and current_size >= disk_limit * 0.90:
-        pressure = True
-    elif policy.allow_proactive_delete:
-        pressure = True
     if not pressure:
         return SelectionResult(evaluated=evaluated, reason_codes=("no_pressure",), pressure=False)
 
-    target_size = min_size if min_size is not None else (disk_limit * 0.85 if disk_limit else None)
-    if policy.allow_proactive_delete and min_size is None and max_size is None:
+    target_size = min_size
+    if target_size is None and policy.allow_proactive_delete and max_size is None:
         target_size = 0.0
-    if target_size is None and policy.allow_proactive_delete:
-        target_size = 0.0
+    elif target_size is None and disk_limit:
+        target_size = disk_limit * max(min(policy.capacity_target_percent, 100.0), 0.0) / 100.0
     if target_size is None:
         return SelectionResult(evaluated=evaluated, reason_codes=("missing_target_size",), pressure=True)
 
+    by_hash = {item.torrent_hash: item for item in normalized}
     eligible = [result for result in evaluated if result.eligible]
-    sizes = {
-        item.torrent_hash: max(item.total_size, 0.0)
-        for item in normalized
-    }
-    # 先删保留价值最低的；价值相近时优先释放更大的空间，避免删掉
-    # 一堆小种子却没有真正缓解容量压力。
     eligible.sort(
         key=lambda result: (
-            result.score,
-            result.score / max(sizes.get(result.torrent_hash, 0.0) / 1024**3, 1.0),
-            -sizes.get(result.torrent_hash, 0.0),
+            math.floor(result.score / 5.0),
+            by_hash[result.torrent_hash].yield_per_gb_24h,
+            -by_hash[result.torrent_hash].total_size,
         )
     )
     active_count = len(normalized)
-    daily_cap = max(1, math.floor(active_count * policy.max_delete_percent_day / 100)) if policy.max_delete_percent_day > 0 else 0
-    remaining_daily = max(daily_cap - max(deleted_today, 0), 0) if daily_cap else len(eligible)
-    run_cap = max(int(policy.max_delete_per_run), 0) if policy.max_delete_per_run else len(eligible)
-    cap = min(run_cap, remaining_daily)
+    daily_count_cap = (
+        max(1, math.floor(active_count * policy.max_delete_percent_day / 100.0))
+        if policy.max_delete_percent_day > 0 else len(eligible)
+    )
+    remaining_count = max(daily_count_cap - max(deleted_today, 0), 0)
+    run_count_cap = max(int(policy.max_delete_per_run), 0)
 
+    capacity_base = disk_limit or current_size
+    run_percent_cap = capacity_base * policy.max_delete_capacity_percent_run / 100.0
+    day_percent_cap = capacity_base * policy.max_delete_capacity_percent_day / 100.0
+    run_explicit_cap = policy.max_delete_gb_per_run * 1024**3
+    day_explicit_cap = policy.max_delete_gb_per_day * 1024**3
+    run_byte_cap = min(
+        cap for cap in (run_percent_cap, run_explicit_cap) if cap > 0
+    ) if run_percent_cap > 0 or run_explicit_cap > 0 else 0.0
+    daily_byte_cap = min(
+        cap for cap in (day_percent_cap, day_explicit_cap) if cap > 0
+    ) if day_percent_cap > 0 or day_explicit_cap > 0 else 0.0
+    remaining_daily_bytes = max(daily_byte_cap - max(deleted_today_bytes, 0.0), 0.0)
     selected: list[DecisionResult] = []
+    freed = 0.0
     remaining_size = current_size
     for result in eligible:
-        if len(selected) >= cap or remaining_size <= target_size:
+        if len(selected) >= min(run_count_cap, remaining_count) or remaining_size <= target_size:
             break
+        size = by_hash[result.torrent_hash].total_size
+        if run_byte_cap > 0 and freed + size > run_byte_cap:
+            continue
+        if daily_byte_cap > 0 and freed + size > remaining_daily_bytes:
+            continue
         selected.append(result)
-        observation = next(item for item in normalized if item.torrent_hash == result.torrent_hash)
-        remaining_size = max(remaining_size - observation.total_size, 0.0)
+        freed += size
+        remaining_size = max(remaining_size - size, 0.0)
 
     reasons: list[str] = []
     if not selected:
         reasons.append("no_low_value_candidate")
-    if len(selected) >= run_cap and run_cap < len(eligible):
-        reasons.append("run_cap")
-    if daily_cap and remaining_daily <= 0:
-        reasons.append("daily_cap")
-    return SelectionResult(tuple(selected), evaluated, tuple(reasons), True)
+    if run_count_cap and len(selected) >= run_count_cap and len(selected) < len(eligible):
+        reasons.extend(("run_count_cap", "run_cap"))
+    if remaining_count <= 0:
+        reasons.append("daily_count_cap")
+    if eligible and not selected and (run_byte_cap <= 0 or remaining_daily_bytes <= 0):
+        reasons.append("byte_cap")
+    return SelectionResult(
+        selected=tuple(selected),
+        evaluated=evaluated,
+        reason_codes=tuple(reasons),
+        pressure=True,
+        target_size=target_size,
+        estimated_freed_bytes=freed,
+    )

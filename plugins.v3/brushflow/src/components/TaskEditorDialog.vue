@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useDisplay } from 'vuetify'
-import { cloneTask, normalizeTask } from '../utils'
+import { applySmartProfile, cloneTask, normalizeTask } from '../utils'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -17,6 +17,28 @@ const display = useDisplay()
 const formRef = ref(null)
 const activeTab = ref('base')
 const localTask = ref(cloneTask())
+const syncingProfile = ref(false)
+const presetFields = [
+  'smart_selection_max_add_per_run',
+  'smart_selection_min_score',
+  'smart_ratio_weight',
+  'smart_cold_inactive_minutes',
+  'smart_demand_confirmations',
+  'smart_candidate_confirmations',
+  'smart_candidate_confirmation_minutes',
+  'smart_capacity_trigger_percent',
+  'smart_capacity_target_percent',
+  'smart_score_threshold',
+  'smart_score_margin',
+  'smart_max_delete_per_run',
+  'smart_max_delete_percent_day',
+  'smart_max_delete_capacity_percent_run',
+  'smart_max_delete_capacity_percent_day',
+  'smart_max_delete_gb_per_run',
+  'smart_max_delete_gb_per_day',
+  'smart_allow_proactive_delete',
+  'smart_required_conditions',
+]
 
 const dialogTitle = computed(() => (localTask.value.id ? '编辑刷流任务' : '新建刷流任务'))
 const siteName = computed(() => props.sites.find(item => item.value === Number(localTask.value.site_id))?.title || '未选择')
@@ -27,14 +49,30 @@ watch(
   () => props.modelValue,
   visible => {
     if (!visible) return
+    syncingProfile.value = true
     localTask.value = cloneTask(props.task)
     activeTab.value = 'base'
+    nextTick(() => { syncingProfile.value = false })
+  },
+)
+
+watch(
+  () => presetFields.map(key => localTask.value[key]),
+  (values, previous) => {
+    if (!previous || syncingProfile.value || localTask.value.smart_profile === 'custom') return
+    if (values.some((value, index) => value !== previous[index])) localTask.value.smart_profile = 'custom'
   },
 )
 
 // 关闭编辑器并丢弃尚未保存的草稿。
 function closeDialog() {
   emit('update:modelValue', false)
+}
+
+function setSmartProfile(profile) {
+  syncingProfile.value = true
+  localTask.value = applySmartProfile(localTask.value, profile)
+  nextTick(() => { syncingProfile.value = false })
 }
 
 // 校验必填项后提交标准化任务数据。
@@ -187,6 +225,16 @@ async function saveTask() {
                       step="0.01"
                       label="目标分享率"
                       :rules="[value => Number(value) > 0 || '请输入大于 0 的目标分享率']"
+                    />
+                  </VCol>
+                  <VCol cols="12" md="6">
+                    <VSelect
+                      v-model="localTask.site_ratio_reached_behavior"
+                      label="目标达成后"
+                      :items="[
+                        { title: '继续按普通均衡门槛运行', value: 'continue' },
+                        { title: '暂停新增（兼容行为）', value: 'pause' },
+                      ]"
                     />
                   </VCol>
                 </VRow>
@@ -360,15 +408,26 @@ async function saveTask() {
                   <VBtn :value="false">{{ globalDynamicDelete ? '不参与托管' : '按条件删除' }}</VBtn>
                   <VBtn :value="true">{{ globalDynamicDelete ? '参与全局托管' : '动态删种' }}</VBtn>
                 </VBtnToggle>
+                <VSelect
+                  :model-value="localTask.smart_profile"
+                  label="智能策略预设"
+                  :items="[
+                    { title: '保守', value: 'conservative' },
+                    { title: '均衡（推荐）', value: 'balanced' },
+                    { title: '冲量', value: 'aggressive' },
+                    { title: '自定义', value: 'custom' },
+                  ]"
+                  @update:model-value="setSmartProfile"
+                />
                 <VSwitch
                   v-model="localTask.smart_enabled"
-                  label="启用智能决策删种（实际执行）"
+                  label="启用 8.0 智能收益删种"
                   color="error"
                   hide-details
                   inset
                 />
-                <VAlert v-if="localTask.smart_enabled" type="warning" variant="tonal" density="compact">
-                  智能模式会实际删除 qB 任务及数据，不使用模拟运行。它会先满足站点最低保种时长，再根据上传速度、下载者、稀缺性、闲置趋势和容量压力决定；热门种子会继续保留。
+                <VAlert v-if="localTask.smart_enabled" type="info" variant="tonal" density="compact">
+                  首次启用先进入 48 小时影子观察，只生成计划、不删除。正式启用后仍强制保护未完成、H&amp;R、最低保种、排除标签、真实上传和有效连接；正常淘汰默认删除任务及数据。
                 </VAlert>
                 <VRow v-if="localTask.proxy_delete && !globalDynamicDelete">
                   <VCol cols="12" md="6">
@@ -439,9 +498,9 @@ async function saveTask() {
                       v-model.number="localTask.smart_ratio_weight"
                       type="number"
                       min="0"
-                      max="40"
+                      max="5"
                       label="分享率保留权重"
-                      hint="越高越保护高分享率种子，建议 15-25"
+                      hint="仅近期仍有上传时生效，最多 5 分"
                       persistent-hint
                     />
                   </VCol>
@@ -454,6 +513,33 @@ async function saveTask() {
                       hint="达到最低保种后，近期有活动的种子暂不淘汰"
                       persistent-hint
                     />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_demand_confirmations" type="number" min="1" max="3" label="需求可信次数（最近 3 次）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_candidate_confirmations" type="number" min="1" max="6" label="低价值连续确认次数" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_candidate_confirmation_minutes" type="number" min="0" label="候选确认最短跨度（分钟）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_capacity_trigger_percent" type="number" min="1" max="100" label="容量触发线（%）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_capacity_target_percent" type="number" min="0" max="99" label="容量停止线（%）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_max_delete_capacity_percent_run" type="number" min="0" max="100" label="每轮最多释放容量（%）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_max_delete_capacity_percent_day" type="number" min="0" max="100" label="每日最多释放容量（%）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_max_delete_gb_per_run" type="number" min="0" label="每轮删除 GB 上限（可选）" />
+                  </VCol>
+                  <VCol cols="12" md="4">
+                    <VTextField v-model.number="localTask.smart_max_delete_gb_per_day" type="number" min="0" label="每日删除 GB 上限（可选）" />
                   </VCol>
                 </VRow>
                 <div v-if="localTask.smart_enabled" class="editor-switches">
@@ -473,7 +559,7 @@ async function saveTask() {
                   />
                   <VSwitch
                     v-model="localTask.smart_allow_proactive_delete"
-                    label="未达到容量压力也允许主动清理"
+                    label="无容量压力也主动清理（默认禁止）"
                     color="warning"
                     hide-details
                     inset
@@ -632,7 +718,7 @@ async function saveTask() {
               <div><dt>目标分享率</dt><dd>{{ localTask.site_ratio_control ? localTask.site_ratio_target || '未设置' : '关闭' }}</dd></div>
               <div><dt>促销</dt><dd>{{ localTask.freeleech === '2xfree' ? '2X 免费' : localTask.freeleech === 'free' ? '免费' : '全部' }}</dd></div>
               <div><dt>保种上限</dt><dd>{{ localTask.disksize ? `${localTask.disksize} GB` : '不限' }}</dd></div>
-              <div><dt>删除</dt><dd>{{ localTask.smart_enabled ? '智能决策（实际执行）' : localTask.proxy_delete ? '动态删种' : '按条件删除' }}</dd></div>
+              <div><dt>删除</dt><dd>{{ localTask.smart_enabled ? `8.0 智能 · ${localTask.smart_profile}` : localTask.proxy_delete ? '动态删种' : '按条件删除' }}</dd></div>
             </dl>
           </VSheet>
         </VForm>

@@ -34,6 +34,7 @@ class BrushTaskPayload(BaseModel):
     active_time_range: Optional[str] = None
     site_ratio_control: bool = False
     site_ratio_target: Optional[float] = Field(None, gt=0)
+    site_ratio_reached_behavior: Literal["continue", "pause"] = "continue"
     disksize: Optional[float] = Field(None, gt=0)
     maxupspeed: Optional[float] = Field(None, gt=0)
     maxdlspeed: Optional[float] = Field(None, gt=0)
@@ -56,24 +57,41 @@ class BrushTaskPayload(BaseModel):
     min_seed_time: Optional[float] = Field(None, gt=0)
     min_inactivetime: Optional[float] = Field(None, gt=0)
     smart_enabled: bool = False
+    smart_profile: Literal["conservative", "balanced", "aggressive", "custom"] = "balanced"
+    smart_engine: Literal["v8", "legacy_7_3"] = "v8"
     smart_selection_enabled: bool = True
     smart_adaptive_enabled: bool = True
     smart_selection_relax_filters: bool = True
-    smart_selection_min_score: float = Field(25, ge=0, le=100)
+    smart_selection_min_score: float = Field(30, ge=0, le=100)
     smart_selection_max_add_per_run: int = Field(5, ge=1, le=100)
     smart_min_ratio: Optional[float] = Field(0, ge=0)
     smart_min_uploaded: Optional[float] = Field(None, ge=0)
-    smart_ratio_weight: float = Field(18, ge=0, le=40)
+    smart_ratio_weight: float = Field(5, ge=0, le=5)
     smart_cold_inactive_minutes: float = Field(360, ge=0)
     smart_protect_active_demand: bool = True
+    smart_demand_confirmations: int = Field(2, ge=1, le=3)
+    smart_candidate_confirmations: int = Field(3, ge=1, le=6)
+    smart_candidate_confirmation_minutes: float = Field(30, ge=0, le=1440)
+    smart_capacity_trigger_percent: float = Field(90, gt=0, le=100)
+    smart_capacity_target_percent: float = Field(85, ge=0, lt=100)
     invalid_seed_cleanup_enabled: bool = False
     invalid_seed_confirmations: int = Field(2, ge=1, le=5)
     smart_score_threshold: float = Field(40, ge=0, le=100)
     smart_score_margin: float = Field(0, ge=0, le=100)
     smart_max_delete_per_run: int = Field(3, ge=1, le=100)
     smart_max_delete_percent_day: float = Field(5, ge=0, le=100)
+    smart_max_delete_capacity_percent_run: float = Field(4, ge=0, le=100)
+    smart_max_delete_capacity_percent_day: float = Field(8, ge=0, le=100)
+    smart_max_delete_gb_per_run: Optional[float] = Field(None, gt=0)
+    smart_max_delete_gb_per_day: Optional[float] = Field(None, gt=0)
     smart_allow_proactive_delete: bool = False
     smart_required_conditions: bool = False
+    smart_shadow_until: Optional[float] = Field(None, ge=0)
+    smart_shadow_started_at: Optional[float] = Field(None, ge=0)
+    smart_shadow_extensions: int = Field(0, ge=0)
+    smart_delete_paused: bool = False
+    smart_auto_activate: bool = True
+    smart_migration_version: int = Field(8, ge=0)
     delete_condition_mode: Literal["any", "all"] = "any"
     dynamic_require_conditions: bool = False
     dynamic_sort_mode: Literal["smart", "oldest", "inactive", "low_speed", "largest"] = "smart"
@@ -112,6 +130,8 @@ class BrushTaskPayload(BaseModel):
         "min_seed_time",
         "min_inactivetime",
         "smart_min_uploaded",
+        "smart_max_delete_gb_per_run",
+        "smart_max_delete_gb_per_day",
         "delete_min_size",
         "delete_max_size",
         "up_speed",
@@ -205,6 +225,8 @@ class BrushTaskPayload(BaseModel):
         """智能删种必须明确填入当前站点的最低保种时长。"""
         if self.smart_enabled and self.min_seed_time is None:
             raise ValueError("启用智能删种时必须设置当前站点的最低保种时长")
+        if self.smart_capacity_target_percent >= self.smart_capacity_trigger_percent:
+            raise ValueError("容量停止线必须低于触发线")
         return self
 
     @model_validator(mode="after")

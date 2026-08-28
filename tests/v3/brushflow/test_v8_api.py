@@ -1,0 +1,103 @@
+"""需要 MoviePilot 测试环境的 8.0 策略 API 与守门测试。"""
+
+import threading
+import time
+from types import SimpleNamespace
+
+from app.plugins.brushflow import BrushFlow, BrushTaskConfig
+
+
+def make_plugin(task):
+    plugin = object.__new__(BrushFlow)
+    plugin._task_configs = {task.id: task}
+    plugin._task_locks = {task.id: threading.Lock()}
+    plugin._runtime_lock = threading.Lock()
+    plugin._runtime = {task.id: {"state": "idle", "operation": None, "last_error": None}}
+    plugin._save_config = lambda: None
+    plugin._append_decision_audit = lambda *_: None
+    plugin._build_task_detail = lambda task_id: {"task": plugin._task_configs[task_id].to_dict()}
+    return plugin
+
+
+def smart_task(**overrides):
+    return BrushTaskConfig(
+        {
+            "id": "smart-api",
+            "name": "Coffee",
+            "site_id": 1,
+            "downloader": "qb",
+            "min_seed_time": 48,
+            "smart_enabled": True,
+            "smart_shadow_until": time.time() + 48 * 3600,
+            "smart_migration_version": 8,
+            **overrides,
+        }
+    )
+
+
+def test_strategy_api_routes_are_registered():
+    paths = {row["path"] for row in object.__new__(BrushFlow).get_api()}
+    assert "/tasks/{task_id}/strategy/activate" in paths
+    assert "/tasks/{task_id}/strategy/extend" in paths
+    assert "/tasks/{task_id}/strategy/pause" in paths
+    assert "/tasks/{task_id}/strategy/resume" in paths
+    assert "/tasks/{task_id}/strategy/rollback" in paths
+
+
+def test_manual_activate_extend_pause_and_rollback():
+    task = smart_task()
+    plugin = make_plugin(task)
+    assert plugin.activate_smart_strategy(task.id).success is True
+    assert task.smart_shadow_until is None
+    assert plugin.extend_smart_shadow(task.id).success is True
+    assert task.smart_shadow_until > time.time()
+    assert plugin.pause_smart_deletion(task.id).success is True
+    assert task.smart_delete_paused is True
+    assert plugin.resume_smart_deletion(task.id).success is True
+    assert task.smart_delete_paused is False
+    assert plugin.rollback_smart_engine(task.id).success is True
+    assert task.smart_engine == "legacy_7_3"
+
+
+def test_strategy_operation_respects_task_lock():
+    task = smart_task()
+    plugin = make_plugin(task)
+    plugin._task_locks[task.id].acquire()
+    try:
+        response = plugin.activate_smart_strategy(task.id)
+    finally:
+        plugin._task_locks[task.id].release()
+    assert response.success is False
+    assert "执行" in response.message
+
+
+def test_false_positive_gate_auto_extends_shadow():
+    task = smart_task(smart_shadow_until=time.time() - 1)
+    plugin = make_plugin(task)
+    candidates = {
+        str(index): {
+            "hash": str(index),
+            "planned_at": time.time() - 25 * 3600,
+            "uploaded": 0,
+            "recovered": index < 2,
+        }
+        for index in range(10)
+    }
+    store = {
+        "smart_candidates": candidates,
+        "strategy_state": {"hard_safety_violations": 0},
+    }
+    plugin._get_task_data = lambda task_id, name: store.get(name)
+    plugin._save_task_data = lambda task_id, name, value: store.__setitem__(name, value)
+    selection = SimpleNamespace(selected=(), estimated_freed_bytes=0)
+    state = plugin._update_smart_strategy_state(
+        task,
+        [],
+        [],
+        selection,
+        {"confidence": 0, "sample_count": 0},
+        {},
+    )
+    assert state["mode"] == "shadow"
+    assert task.smart_shadow_until > time.time()
+    assert task.smart_shadow_extensions == 1

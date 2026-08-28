@@ -1,5 +1,0 @@
-plugins.v3/brushflow/node_modules/
-plugins.v3/brushflow/__pycache__/
-tests/**/__pycache__/
-*.pyc
-*.zip

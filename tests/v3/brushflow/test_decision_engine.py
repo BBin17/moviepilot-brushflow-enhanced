@@ -1,13 +1,23 @@
-"""BrushFlow 7.0 智能删种引擎测试。"""
+"""BrushFlow 智能决策引擎测试。"""
 
-from app.plugins.brushflow.decision import (
-    SmartPolicy,
-    TorrentObservation,
-    candidate_score,
-    evaluate_candidate,
-    rank_selection_candidates,
-    select_deletions,
-)
+import importlib.util
+from pathlib import Path
+import sys
+
+
+MODULE_PATH = Path(__file__).parents[3] / "plugins.v3" / "brushflow" / "decision.py"
+SPEC = importlib.util.spec_from_file_location("brushflow_decision_full", MODULE_PATH)
+decision = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+sys.modules[SPEC.name] = decision
+SPEC.loader.exec_module(decision)
+
+SmartPolicy = decision.SmartPolicy
+TorrentObservation = decision.TorrentObservation
+candidate_score = decision.candidate_score
+evaluate_candidate = decision.evaluate_candidate
+rank_selection_candidates = decision.rank_selection_candidates
+select_deletions = decision.select_deletions
 
 
 def _seed(**overrides):
@@ -24,6 +34,9 @@ def _seed(**overrides):
         "upspeed": overrides.pop("upspeed", 0),
         "num_seeds": overrides.pop("num_seeds", 20),
         "num_leechs": overrides.pop("num_leechs", 0),
+        "active_peers": overrides.pop("active_peers", 0),
+        "low_value_confirmations": overrides.pop("low_value_confirmations", 3),
+        "low_value_span_minutes": overrides.pop("low_value_span_minutes", 30),
     }
     data.update(overrides)
     return data
@@ -38,6 +51,8 @@ def _policy(**overrides):
         "max_delete_per_run": 3,
         "max_delete_percent_day": 100,
         "allow_proactive_delete": False,
+        "max_delete_capacity_percent_run": 100,
+        "max_delete_capacity_percent_day": 100,
     }
     values.update(overrides)
     return SmartPolicy(**values)
@@ -50,7 +65,7 @@ def test_minimum_site_seed_time_is_a_hard_floor():
 
 
 def test_hr_and_incomplete_are_never_candidates():
-    assert evaluate_candidate(_seed(progress=80), _policy()).reason_codes == ("incomplete",)
+    assert evaluate_candidate(_seed(progress=80, downloaded=8 * 1024**3), _policy()).reason_codes == ("incomplete",)
     assert evaluate_candidate(_seed(hit_and_run=True), _policy()).reason_codes == ("hit_and_run",)
 
 
@@ -82,8 +97,8 @@ def test_hot_seed_is_kept_even_when_capacity_is_under_pressure():
         ),
         _policy(),
     )
-    assert result.action == "keep"
-    assert result.score > 40
+    assert result.action == "blocked"
+    assert result.reason_codes == ("real_upload",)
 
 
 def test_no_pressure_means_no_deletion_by_default():

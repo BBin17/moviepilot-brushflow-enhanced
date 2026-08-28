@@ -14,11 +14,13 @@ SPEC.loader.exec_module(decision)
 
 class DecisionEngineTests(unittest.TestCase):
     def test_adaptive_selection_scales_with_ratio_gap(self):
-        self.assertEqual(decision.adaptive_selection_policy(5, 30, 0.4, 2.0), (5, 25.0, 1.6))
-        self.assertEqual(decision.adaptive_selection_policy(5, 30, 1.29, 2.0), (3, 30.0, 0.71))
+        self.assertEqual(decision.adaptive_selection_policy(5, 30, 0.4, 2.0), (5, 26.0, 1.6))
+        self.assertEqual(decision.adaptive_selection_policy(5, 30, 1.2, 2.0), (5, 28.0, 0.8))
         count, score, gap = decision.adaptive_selection_policy(5, 30, 1.85, 2.0)
-        self.assertEqual((count, score), (1, 40.0))
+        self.assertEqual(count, 5)
+        self.assertAlmostEqual(score, 29.625)
         self.assertAlmostEqual(gap, 0.15)
+        self.assertEqual(decision.adaptive_selection_policy(5, 30, 2.1, 2.0), (5, 30.0, 0.0))
 
     def test_candidate_scoring_prefers_demand_and_efficiency(self):
         small_demand = {
@@ -47,7 +49,7 @@ class DecisionEngineTests(unittest.TestCase):
         self.assertIs(ranked[0].candidate, small_demand)
         self.assertGreater(ranked[0].decision.contributions["size_efficiency"], 0)
 
-    def test_active_demand_and_cold_cooldown_are_hard_protection(self):
+    def test_trusted_demand_and_cold_cooldown_are_hard_protection(self):
         policy = decision.SmartPolicy(
             min_seed_time_hours=24,
             smart_cold_inactive_minutes=360,
@@ -63,6 +65,7 @@ class DecisionEngineTests(unittest.TestCase):
                 "leechers": 1,
             },
             policy,
+            history=[{"hash": "active", "at": 1, "leechers": 1}],
         )
         recent = decision.evaluate_candidate(
             {
@@ -74,10 +77,10 @@ class DecisionEngineTests(unittest.TestCase):
             },
             policy,
         )
-        self.assertEqual(active.reason_codes, ("active_demand",))
+        self.assertEqual(active.reason_codes, ("trusted_active_demand",))
         self.assertEqual(recent.reason_codes, ("smart_cold_cooldown",))
 
-    def test_ratio_weight_keeps_high_ratio_seed_when_capacity_is_full(self):
+    def test_ratio_is_neutral_without_recent_upload(self):
         policy = decision.SmartPolicy(
             min_seed_time_hours=24,
             smart_cold_inactive_minutes=0,
@@ -85,6 +88,8 @@ class DecisionEngineTests(unittest.TestCase):
             ratio_weight=18.0,
             max_delete_per_run=1,
             max_delete_percent_day=100,
+            max_delete_capacity_percent_run=100,
+            max_delete_capacity_percent_day=100,
         )
         low = {
             "hash": "low",
@@ -95,16 +100,15 @@ class DecisionEngineTests(unittest.TestCase):
             "seeding_time": 48 * 3600,
             "inactive_time": 48 * 3600,
             "seeders": 30,
+            "active_peers": 0,
+            "low_value_confirmations": 3,
+            "low_value_span_minutes": 30,
         }
         high = {**low, "hash": "high", "ratio": 2.0, "uploaded": 20 * 1024**3}
-        result = decision.select_deletions(
-            [low, high],
-            policy,
-            current_size=20 * 1024**3,
-            min_size=10 * 1024**3,
-            max_size=20 * 1024**3,
-        )
-        self.assertEqual([item.torrent_hash for item in result.selected], ["low"])
+        low_result = decision.evaluate_candidate(low, policy)
+        high_result = decision.evaluate_candidate(high, policy)
+        self.assertEqual(low_result.score, high_result.score)
+        self.assertEqual(low_result.contributions["ratio"], 0)
 
     def test_invalid_seed_requires_explicit_error_and_working_tracker(self):
         invalid = decision.detect_invalid_seed(

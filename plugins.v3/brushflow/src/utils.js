@@ -11,6 +11,7 @@ export const taskDefaults = {
   active_time_range: null,
   site_ratio_control: false,
   site_ratio_target: null,
+  site_ratio_reached_behavior: 'continue',
   disksize: null,
   maxupspeed: null,
   maxdlspeed: null,
@@ -33,24 +34,41 @@ export const taskDefaults = {
   min_seed_time: null,
   min_inactivetime: null,
   smart_enabled: false,
+  smart_profile: 'balanced',
+  smart_engine: 'v8',
   smart_selection_enabled: true,
   smart_adaptive_enabled: true,
   smart_selection_relax_filters: true,
-  smart_selection_min_score: 25,
+  smart_selection_min_score: 30,
   smart_selection_max_add_per_run: 5,
   smart_min_ratio: 0,
   smart_min_uploaded: null,
-  smart_ratio_weight: 18,
+  smart_ratio_weight: 5,
   smart_cold_inactive_minutes: 360,
   smart_protect_active_demand: true,
+  smart_demand_confirmations: 2,
+  smart_candidate_confirmations: 3,
+  smart_candidate_confirmation_minutes: 30,
+  smart_capacity_trigger_percent: 90,
+  smart_capacity_target_percent: 85,
   invalid_seed_cleanup_enabled: false,
   invalid_seed_confirmations: 2,
   smart_score_threshold: 40,
   smart_score_margin: 0,
   smart_max_delete_per_run: 3,
   smart_max_delete_percent_day: 5,
-  smart_allow_proactive_delete: true,
+  smart_max_delete_capacity_percent_run: 4,
+  smart_max_delete_capacity_percent_day: 8,
+  smart_max_delete_gb_per_run: null,
+  smart_max_delete_gb_per_day: null,
+  smart_allow_proactive_delete: false,
   smart_required_conditions: false,
+  smart_shadow_until: null,
+  smart_shadow_started_at: null,
+  smart_shadow_extensions: 0,
+  smart_delete_paused: false,
+  smart_auto_activate: true,
+  smart_migration_version: 8,
   delete_condition_mode: 'any',
   dynamic_require_conditions: false,
   dynamic_sort_mode: 'smart',
@@ -72,6 +90,41 @@ export const taskDefaults = {
   site_skip_tips: false,
   rss_support: false,
   tag: null,
+}
+
+export const smartPresets = {
+  conservative: {
+    smart_selection_max_add_per_run: 2,
+    smart_selection_min_score: 40,
+    smart_cold_inactive_minutes: 720,
+    smart_candidate_confirmations: 4,
+    smart_candidate_confirmation_minutes: 60,
+    smart_score_threshold: 35,
+    smart_max_delete_capacity_percent_day: 4,
+  },
+  balanced: {
+    smart_selection_max_add_per_run: 5,
+    smart_selection_min_score: 30,
+    smart_cold_inactive_minutes: 360,
+    smart_candidate_confirmations: 3,
+    smart_candidate_confirmation_minutes: 30,
+    smart_score_threshold: 40,
+    smart_max_delete_capacity_percent_day: 8,
+  },
+  aggressive: {
+    smart_selection_max_add_per_run: 8,
+    smart_selection_min_score: 22,
+    smart_cold_inactive_minutes: 180,
+    smart_candidate_confirmations: 2,
+    smart_candidate_confirmation_minutes: 15,
+    smart_score_threshold: 48,
+    smart_max_delete_capacity_percent_day: 15,
+  },
+}
+
+export function applySmartProfile(task, profile) {
+  const key = smartPresets[profile] ? profile : 'custom'
+  return { ...task, ...(smartPresets[key] || {}), smart_profile: key }
 }
 
 /** 统一提取宿主 API 客户端与标准响应模型中的业务数据。 */
@@ -110,6 +163,8 @@ export function normalizeTask(task) {
     'smart_min_uploaded',
     'smart_selection_min_score',
     'invalid_seed_confirmations',
+    'smart_max_delete_gb_per_run',
+    'smart_max_delete_gb_per_day',
     'delete_min_size',
     'delete_max_size',
     'up_speed',
@@ -134,7 +189,22 @@ export function normalizeTask(task) {
     const value = result[key] === '' || result[key] === null ? null : Number(result[key])
     result[key] = value === 0 ? null : value
   })
-  ;['smart_selection_max_add_per_run', 'smart_score_threshold', 'smart_score_margin', 'smart_max_delete_per_run', 'smart_max_delete_percent_day'].forEach(key => {
+  ;[
+    'smart_selection_max_add_per_run',
+    'smart_score_threshold',
+    'smart_score_margin',
+    'smart_max_delete_per_run',
+    'smart_max_delete_percent_day',
+    'smart_ratio_weight',
+    'smart_cold_inactive_minutes',
+    'smart_demand_confirmations',
+    'smart_candidate_confirmations',
+    'smart_candidate_confirmation_minutes',
+    'smart_capacity_trigger_percent',
+    'smart_capacity_target_percent',
+    'smart_max_delete_capacity_percent_run',
+    'smart_max_delete_capacity_percent_day',
+  ].forEach(key => {
     const value = Number(result[key])
     if (Number.isFinite(value)) result[key] = value
   })
