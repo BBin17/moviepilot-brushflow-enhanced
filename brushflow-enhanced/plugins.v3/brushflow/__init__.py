@@ -331,7 +331,7 @@ class BrushFlow(_PluginBase):
     plugin_name = "站点刷流增强版"
     plugin_desc = "完整保留站点刷流能力，增加分享率缺口自适应选种、活跃需求保护、无效 Tracker 做种清理、可解释智能删种、容量上下阈值、审计与限额。"
     plugin_icon = "brush-flow.png"
-    plugin_version = "7.2.0"
+    plugin_version = "7.3.1"
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
     plugin_config_prefix = "brushflow_"
