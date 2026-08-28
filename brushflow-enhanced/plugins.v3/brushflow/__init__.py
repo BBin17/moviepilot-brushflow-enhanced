@@ -258,7 +258,7 @@ class BrushTaskConfig:
         if self.smart_max_delete_percent_day is None:
             self.smart_max_delete_percent_day = 5
         self.smart_allow_proactive_delete = bool(
-            config.get("smart_allow_proactive_delete", True)
+            config.get("smart_allow_proactive_delete", False)
         )
         self.smart_required_conditions = bool(config.get("smart_required_conditions", False))
         self.delete_condition_mode = config.get("delete_condition_mode", "any")
@@ -2419,6 +2419,8 @@ class BrushFlow(_PluginBase):
         ]
         observations: List[dict] = []
         legacy_conditions: Dict[str, bool] = {}
+        # 只使用本轮开始前的历史，当前快照在评分完成后再写入。
+        history_before_current = list(history)
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
             torrent_task = torrent_tasks.get(torrent_hash)
@@ -2450,7 +2452,6 @@ class BrushFlow(_PluginBase):
                 }
             )
 
-        history_before_current = list(history)
         self._save_current_task_data("smart_history", history[-2000:])
         if not observations:
             return []

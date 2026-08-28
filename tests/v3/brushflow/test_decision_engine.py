@@ -155,3 +155,30 @@ def test_smart_selection_prefers_promotion_demand_and_scarcity():
     assert candidate_score(valuable).score > candidate_score(cold).score
     ranked = rank_selection_candidates([cold, valuable], min_score=25, max_count=1)
     assert ranked[0].candidate["title"] == "免费热门种"
+
+
+def test_default_selection_threshold_rejects_large_stale_candidate():
+    stale = {
+        "title": "超大冷种",
+        "size": 200 * 1024**3,
+        "seeders": 80,
+        "leechers": 0,
+        "downloadvolumefactor": 0,
+        "uploadvolumefactor": 1,
+        "age_minutes": 7 * 24 * 60,
+    }
+    assert candidate_score(stale).score < 25
+    assert rank_selection_candidates([stale], min_score=25) == ()
+
+
+def test_deletion_prefers_larger_seed_when_retention_value_is_equal():
+    small = _seed(hash="small", total_size=5 * 1024**3)
+    large = _seed(hash="large", total_size=50 * 1024**3)
+    result = select_deletions(
+        [small, large],
+        _policy(max_delete_per_run=1),
+        current_size=100 * 1024**3,
+        min_size=40 * 1024**3,
+        max_size=90 * 1024**3,
+    )
+    assert [item.torrent_hash for item in result.selected] == ["large"]

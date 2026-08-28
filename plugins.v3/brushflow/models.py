@@ -72,7 +72,7 @@ class BrushTaskPayload(BaseModel):
     smart_score_margin: float = Field(0, ge=0, le=100)
     smart_max_delete_per_run: int = Field(3, ge=1, le=100)
     smart_max_delete_percent_day: float = Field(5, ge=0, le=100)
-    smart_allow_proactive_delete: bool = True
+    smart_allow_proactive_delete: bool = False
     smart_required_conditions: bool = False
     delete_condition_mode: Literal["any", "all"] = "any"
     dynamic_require_conditions: bool = False

@@ -331,6 +331,15 @@ def candidate_score(
     if leechers > 0 and size_gb > 0:
         demand_per_gb = math.log1p(leechers) / math.log1p(max(size_gb, 1.0))
         size_efficiency = min(max(demand_per_gb, 0.0), 1.0) * 8.0 * ratio_gap_factor
+    # 容量是刷流任务的稀缺资源。没有下载需求的大种子即使是免费种，
+    # 也不应该仅凭促销标签挤掉小而有需求的候选。
+    capacity_cost = 0.0
+    if size_gb > 0:
+        capacity_cost = min(math.log1p(size_gb) / math.log1p(100), 1.0) * (
+            8.0 + 5.0 * (1.0 - ratio_gap_factor)
+        )
+        if leechers > 0:
+            capacity_cost *= 0.55
     hr_penalty = 20.0 if hit_and_run else 0.0
     contributions = {
         "promotion": round(promotion, 2),
@@ -339,9 +348,11 @@ def candidate_score(
         "freshness": round(freshness, 2),
         "size": round(-size_penalty, 2),
         "size_efficiency": round(size_efficiency, 2),
+        "capacity_cost": round(-capacity_cost, 2),
         "hr_risk": round(-hr_penalty, 2),
     }
-    score = max(0.0, min(100.0, 25.0 + sum(contributions.values())))
+    # 基础分不再等于默认门槛 25，避免所有候选天然通过智能选种。
+    score = max(0.0, min(100.0, 10.0 + sum(contributions.values())))
     reasons = []
     if promotion:
         reasons.append("promotion")
@@ -585,10 +596,17 @@ def select_deletions(
         return SelectionResult(evaluated=evaluated, reason_codes=("missing_target_size",), pressure=True)
 
     eligible = [result for result in evaluated if result.eligible]
+    sizes = {
+        item.torrent_hash: max(item.total_size, 0.0)
+        for item in normalized
+    }
+    # 先删保留价值最低的；价值相近时优先释放更大的空间，避免删掉
+    # 一堆小种子却没有真正缓解容量压力。
     eligible.sort(
         key=lambda result: (
             result.score,
-            -next((item.total_size for item in normalized if item.torrent_hash == result.torrent_hash), 0),
+            result.score / max(sizes.get(result.torrent_hash, 0.0) / 1024**3, 1.0),
+            -sizes.get(result.torrent_hash, 0.0),
         )
     )
     active_count = len(normalized)
