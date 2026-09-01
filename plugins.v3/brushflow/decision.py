@@ -324,6 +324,22 @@ def _candidate_age_minutes(candidate: Any) -> float:
     return max(_number(_read_candidate(candidate, "date_elapsed"), 0.0), 0.0)
 
 
+def size_range_matches(size_bytes: Any, size_rule: Any) -> bool:
+    """判断候选种子是否满足用户填写的 GB 大小范围。
+
+    ``size`` 是显式过滤条件，即使智能选种开启了放宽模式也必须生效。
+    单值沿用旧版语义，表示最低大小；两个值表示闭区间。
+    """
+    rule = str(size_rule or "").strip()
+    if not rule:
+        return True
+    limits = [float(value) * 1024**3 for value in rule.split("-")]
+    size = _positive(size_bytes)
+    if len(limits) == 1:
+        return size >= limits[0]
+    return limits[0] <= size <= limits[1]
+
+
 def capacity_selection_policy(
     profile: str,
     occupancy_ratio: float,

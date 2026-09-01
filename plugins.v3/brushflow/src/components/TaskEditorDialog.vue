@@ -291,11 +291,14 @@ async function saveTask() {
                   />
                   <VSwitch
                     v-model="localTask.smart_selection_relax_filters"
-                    label="大小/做种人数交给智能评分"
+                    label="做种人数交给智能评分"
                     color="primary"
                     hide-details
                     inset
                   />
+                  <div class="text-body-2 text-medium-emphasis">
+                    已填写的种子大小始终作为硬过滤；此开关只影响做种人数范围。
+                  </div>
                 </div>
                 <VRow v-if="localTask.smart_selection_enabled">
                   <VCol cols="12" md="6">

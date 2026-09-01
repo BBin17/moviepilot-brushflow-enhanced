@@ -55,6 +55,17 @@ def balanced_policy(**overrides):
 
 
 class SelectionTests(unittest.TestCase):
+    def test_explicit_minimum_size_is_always_enforced(self):
+        self.assertFalse(decision.size_range_matches(0.49 * GIB, "0.5"))
+        self.assertTrue(decision.size_range_matches(0.5 * GIB, "0.5"))
+        self.assertTrue(decision.size_range_matches(1 * GIB, "0.5"))
+
+    def test_explicit_size_range_is_closed_interval(self):
+        self.assertFalse(decision.size_range_matches(0.49 * GIB, "0.5-2"))
+        self.assertTrue(decision.size_range_matches(0.5 * GIB, "0.5-2"))
+        self.assertTrue(decision.size_range_matches(2 * GIB, "0.5-2"))
+        self.assertFalse(decision.size_range_matches(2.01 * GIB, "0.5-2"))
+
     def test_80gb_free_without_demand_is_rejected(self):
         item = {
             "size": 80 * GIB,

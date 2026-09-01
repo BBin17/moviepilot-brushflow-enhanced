@@ -1,4 +1,4 @@
-# BrushFlow Enhanced 8.0.0
+# BrushFlow Enhanced 8.0.2
 
 基于 MoviePilot 官方 `BrushFlow 6.1.0` 的完整增强版，保留原有多站点刷流、选种、限额、分享率控制、标签、H&R、促销和运行诊断功能。
 

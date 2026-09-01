@@ -48,6 +48,7 @@ from .decision import (
     detect_invalid_seed,
     rank_selection_candidates,
     select_deletions,
+    size_range_matches,
     tracker_endpoint_domain,
 )
 from .learning import (
@@ -2480,12 +2481,10 @@ class BrushFlow(_PluginBase):
             if exclude_match:
                 return False, "符合排除规则"
         smart_relaxed = task.smart_selection_enabled and task.smart_selection_relax_filters
-        if task.size and not smart_relaxed:
-            size_range = [float(value) * 1024 ** 3 for value in task.size.split("-")]
-            if len(size_range) == 1 and torrent.size < size_range[0]:
-                return False, "种子大小低于下限"
-            if len(size_range) > 1 and not size_range[0] <= torrent.size <= size_range[1]:
-                return False, "种子大小不在范围内"
+        # 用户明确填写的大小是硬过滤，不能被“放宽大小/做种人数”开关绕过。
+        # 否则填写 0.5 GB 时，智能选种仍可能加入更小的候选。
+        if task.size and not size_range_matches(torrent.size, task.size):
+            return False, "种子大小低于下限" if "-" not in task.size else "种子大小不在范围内"
         if task.seeder and not smart_relaxed:
             seeder_range = [float(value) for value in task.seeder.split("-")]
             seeders = torrent.seeders or 0
