@@ -1,5 +1,5 @@
 <script setup>
-import BrushFlowWorkbench from './BrushFlowWorkbench.vue'
+import BrushFlowV9 from './BrushFlowV9.vue'
 
 defineProps({
   api: { type: Object, default: () => ({}) },
@@ -11,5 +11,5 @@ defineEmits(['action'])
 </script>
 
 <template>
-  <BrushFlowWorkbench :api="api" :plugin-id="pluginId" @action="$emit('action')" />
+  <BrushFlowV9 :api="api" :plugin-id="pluginId" @action="$emit('action')" />
 </template>

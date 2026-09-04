@@ -221,3 +221,28 @@ def health_label(state: str) -> str:
         HEALTH_CHECKING: "下载器检查中",
         HEALTH_ERROR: "下载器报错",
     }.get(state, "观察中")
+
+
+def next_health_action(
+    state: str,
+    progress_delta: float,
+    *,
+    repair_at: Optional[float],
+    paused_at: Optional[float],
+    now: float,
+    policy: Optional[DownloadHealthPolicy] = None,
+) -> Dict[str, Any]:
+    """返回下载健康状态机的下一步；动作只包含修复或暂停，永不删除。"""
+    policy = policy or DownloadHealthPolicy()
+    if state not in {HEALTH_STALLED, HEALTH_SLOW}:
+        return {"action": None, "repair_at": None, "paused_at": None}
+    # 卡住状态出现真实增量即恢复；低速状态按完整观察窗的有效均速判断，
+    # 否则每次极小增量都会让“连续低速 6 小时”永远无法进入修复闭环。
+    if state == HEALTH_STALLED and _number(progress_delta) > 0:
+        return {"action": None, "repair_at": None, "paused_at": None}
+    if not repair_at:
+        return {"action": "repair", "repair_at": now, "paused_at": None}
+    required = policy.stalled_window_minutes * 60 if state == HEALTH_STALLED else policy.slow_after_hours * 3600
+    if not paused_at and now - float(repair_at) >= required:
+        return {"action": "pause", "repair_at": repair_at, "paused_at": now}
+    return {"action": None, "repair_at": repair_at, "paused_at": paused_at}

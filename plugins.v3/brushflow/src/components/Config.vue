@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted } from 'vue'
-import BrushFlowWorkbench from './BrushFlowWorkbench.vue'
+import BrushFlowV9 from './BrushFlowV9.vue'
 
 defineProps({
   initialConfig: { type: Object, default: () => ({}) },
@@ -15,7 +15,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <BrushFlowWorkbench
+  <BrushFlowV9
     :api="api"
     plugin-id="BrushFlow"
     initial-tab="config"

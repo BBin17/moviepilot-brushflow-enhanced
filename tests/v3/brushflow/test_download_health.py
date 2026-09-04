@@ -99,6 +99,30 @@ class DownloadHealthTests(unittest.TestCase):
         self.assertEqual(paused["state"], health.HEALTH_PAUSED)
         self.assertEqual(completed["state"], health.HEALTH_COMPLETED)
 
+    def test_unhealthy_download_repairs_once_then_pauses(self):
+        policy = health.DownloadHealthPolicy(stalled_window_minutes=30)
+        first = health.next_health_action(
+            health.HEALTH_STALLED, 0, repair_at=None, paused_at=None, now=1000, policy=policy
+        )
+        self.assertEqual(first["action"], "repair")
+        second = health.next_health_action(
+            health.HEALTH_STALLED, 0, repair_at=1000, paused_at=None, now=2800, policy=policy
+        )
+        self.assertEqual(second["action"], "pause")
+
+    def test_real_progress_clears_repair_state_and_never_deletes(self):
+        result = health.next_health_action(
+            health.HEALTH_STALLED, 1024, repair_at=1000, paused_at=2000, now=3000
+        )
+        self.assertIsNone(result["action"])
+        self.assertIsNone(result["repair_at"])
+
+    def test_sustained_slow_speed_enters_repair_even_with_small_progress(self):
+        result = health.next_health_action(
+            health.HEALTH_SLOW, 1024, repair_at=None, paused_at=None, now=3000
+        )
+        self.assertEqual(result["action"], "repair")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -233,7 +233,7 @@ class TorrentObservation:
 
 @dataclass(frozen=True)
 class SmartPolicy:
-    """8.0 智能收益策略。所有容量值使用字节。"""
+    """9.0 统一收益策略。所有容量值使用字节。"""
 
     profile: str = "balanced"
     min_seed_time_hours: float = 0.0
@@ -243,8 +243,6 @@ class SmartPolicy:
     demand_confirmations: int = 2
     low_value_confirmations: int = 3
     low_value_span_minutes: float = 30.0
-    min_ratio: float = 0.0
-    min_uploaded_gb: float = 0.0
     ratio_target: float = 2.0
     ratio_weight: float = 5.0
     score_threshold: float = 40.0
@@ -257,15 +255,7 @@ class SmartPolicy:
     max_delete_capacity_percent_day: float = 8.0
     max_delete_gb_per_run: float = 0.0
     max_delete_gb_per_day: float = 0.0
-    capacity_recovery_enabled: bool = True
-    capacity_recovery_trigger_percent: float = 125.0
-    recovery_max_delete_percent_day: float = 20.0
-    recovery_max_delete_capacity_percent_run: float = 20.0
-    recovery_max_delete_capacity_percent_day: float = 40.0
-    allow_proactive_delete: bool = False
-    required_conditions: bool = False
     excluded_tags: tuple[str, ...] = ()
-    engine_version: str = "8.0"
 
 
 @dataclass(frozen=True)
@@ -392,7 +382,7 @@ def candidate_score(
     learned_median_yield: Optional[float] = None,
     learning_confidence: float = 0.0,
 ) -> CandidateDecision:
-    """计算 8.0 选种收益分，并保留未知 Tracker 人数的中性语义。"""
+    """计算 9.0 选种收益分，并保留未知 Tracker 人数的中性语义。"""
     download_factor = _number(_read_candidate(candidate, "downloadvolumefactor"), 1.0)
     upload_factor = _number(_read_candidate(candidate, "uploadvolumefactor"), 1.0)
     seeders = _candidate_optional_count(candidate, "seeders", "num_seeds")
@@ -663,55 +653,10 @@ def retention_score(
     return round(score, 2), contributions
 
 
-def legacy_retention_score(
-    observation: TorrentObservation,
-    history: Sequence[Mapping[str, Any]] = (),
-    *,
-    ratio_target: float = 2.0,
-    ratio_weight: float = 18.0,
-) -> tuple[float, dict[str, float]]:
-    """保留 7.3 的实时速度/人数/分享率评分，供一个大版本周期回退。"""
-    upload_rate = max(observation.upload_speed, observation.avg_upload_speed)
-    upload_signal = min(math.log1p(upload_rate) / math.log1p(1024 * 1024), 1.0) * 25.0
-    peers = max(observation.active_peers or 0.0, observation.leechers or 0.0)
-    peer_signal = min(math.log1p(peers) / math.log1p(20), 1.0) * 20.0
-    scarcity_signal = 0.0
-    if observation.seeders is not None:
-        scarcity_signal = max(0.0, 1.0 - min(observation.seeders / 20.0, 1.0)) * 22.0
-    target = max(_positive(ratio_target, 2.0), 1.0)
-    ratio_signal = min(observation.ratio / target, 1.0) * max(
-        0.0, min(_number(ratio_weight, 18.0), 40.0)
-    )
-    inactive_penalty = min(observation.inactive_time / (7 * 86400), 1.0) * 15.0
-    age_penalty = min(observation.seeding_time / (30 * 86400), 1.0) * 5.0
-    size_penalty = min(observation.total_size / (100 * 1024**3), 1.0) * 5.0
-    trend_signal = 0.0
-    previous = _history_for(observation.torrent_hash, history)
-    if previous:
-        previous_rate = _positive(previous[0].get("upload_speed", previous[0].get("avg_upload_speed")))
-        if upload_rate > previous_rate * 1.15:
-            trend_signal = 8.0
-        elif upload_rate < previous_rate * 0.5:
-            trend_signal = -5.0
-    contributions = {
-        "upload_demand": round(upload_signal, 2),
-        "peer_demand": round(peer_signal, 2),
-        "scarcity": round(scarcity_signal, 2),
-        "ratio": round(ratio_signal, 2),
-        "trend": round(trend_signal, 2),
-        "inactivity": round(-inactive_penalty, 2),
-        "age": round(-age_penalty, 2),
-        "size": round(-size_penalty, 2),
-    }
-    score = max(0.0, min(100.0, 20.0 + sum(contributions.values())))
-    return round(score, 2), contributions
-
-
 def evaluate_candidate(
     observation: TorrentObservation | Mapping[str, Any],
     policy: SmartPolicy,
     history: Sequence[Mapping[str, Any]] = (),
-    legacy_conditions_met: bool = True,
 ) -> DecisionResult:
     if not isinstance(observation, TorrentObservation):
         observation = TorrentObservation.from_mapping(observation)
@@ -737,15 +682,7 @@ def evaluate_candidate(
     inactive_floor = max(policy.smart_cold_inactive_minutes, policy.min_inactive_minutes)
     if inactive_floor > 0 and observation.inactive_time < inactive_floor * 60:
         return blocked("smart_cold_cooldown")
-    if policy.min_ratio > 0 and observation.ratio < policy.min_ratio:
-        return blocked("min_ratio")
-    if policy.min_uploaded_gb > 0 and observation.uploaded < policy.min_uploaded_gb * 1024**3:
-        return blocked("min_uploaded")
-    if policy.required_conditions and not legacy_conditions_met:
-        return blocked("required_condition")
-
-    scorer = legacy_retention_score if policy.engine_version.startswith("7.3") else retention_score
-    score, contributions = scorer(
+    score, contributions = retention_score(
         observation,
         history,
         ratio_target=policy.ratio_target,
@@ -754,9 +691,9 @@ def evaluate_candidate(
     cutoff = max(0.0, policy.score_threshold - max(policy.score_margin, 0.0))
     if score > cutoff:
         return DecisionResult(observation.torrent_hash, "keep", score, ("valuable_seed",), contributions)
-    required = 1 if policy.engine_version.startswith("7.3") else max(policy.low_value_confirmations, 1)
+    required = max(policy.low_value_confirmations, 1)
     confirmations, span = _confirmation_state(observation, history, required)
-    required_span = 0.0 if policy.engine_version.startswith("7.3") else max(policy.low_value_span_minutes, 0.0)
+    required_span = max(policy.low_value_span_minutes, 0.0)
     if confirmations < required or span < required_span:
         details = dict(contributions)
         details.update({"confirmations": float(confirmations), "confirmation_span_minutes": round(span, 2)})
@@ -775,7 +712,6 @@ def select_deletions(
     history: Sequence[Mapping[str, Any]] = (),
     deleted_today: int = 0,
     deleted_today_bytes: float = 0.0,
-    legacy_conditions: Optional[Mapping[str, bool]] = None,
 ) -> SelectionResult:
     normalized = [
         item if isinstance(item, TorrentObservation) else TorrentObservation.from_mapping(item)
@@ -785,8 +721,6 @@ def select_deletions(
     if trigger is None and disk_limit:
         trigger = disk_limit * max(min(policy.capacity_trigger_percent, 100.0), 0.0) / 100.0
     pressure = bool(trigger is not None and current_size >= trigger)
-    if policy.allow_proactive_delete:
-        pressure = True
     capacity_base_for_pressure = disk_limit or trigger
     capacity_ratio = (
         max(current_size / capacity_base_for_pressure, 0.0)
@@ -794,11 +728,7 @@ def select_deletions(
         else (1.0 if pressure else 0.0)
     )
     capacity_pressure = min(capacity_ratio, 4.0)
-    recovery_active = bool(
-        policy.capacity_recovery_enabled
-        and disk_limit
-        and capacity_ratio >= max(policy.capacity_recovery_trigger_percent, 100.0) / 100.0
-    )
+    recovery_active = bool(disk_limit and capacity_ratio > 1.0)
     normalized = [
         TorrentObservation(**{**item.__dict__, "capacity_pressure": capacity_pressure})
         for item in normalized
@@ -808,7 +738,6 @@ def select_deletions(
             item,
             policy,
             history,
-            (legacy_conditions or {}).get(item.torrent_hash, True),
         )
         for item in normalized
     )
@@ -821,9 +750,7 @@ def select_deletions(
         )
 
     target_size = min_size
-    if target_size is None and policy.allow_proactive_delete and max_size is None:
-        target_size = 0.0
-    elif target_size is None and disk_limit:
+    if target_size is None and disk_limit:
         target_size = disk_limit * max(min(policy.capacity_target_percent, 100.0), 0.0) / 100.0
     if target_size is None:
         return SelectionResult(
@@ -848,20 +775,12 @@ def select_deletions(
         max(1, math.floor(active_count * policy.max_delete_percent_day / 100.0))
         if policy.max_delete_percent_day > 0 else len(eligible)
     )
-    if recovery_active and policy.recovery_max_delete_percent_day > 0:
-        daily_count_cap = max(
-            daily_count_cap,
-            max(1, math.floor(active_count * policy.recovery_max_delete_percent_day / 100.0)),
-        )
     remaining_count = max(daily_count_cap - max(deleted_today, 0), 0)
     run_count_cap = max(int(policy.max_delete_per_run), 0)
 
     capacity_base = disk_limit or current_size
     run_percent = policy.max_delete_capacity_percent_run
     day_percent = policy.max_delete_capacity_percent_day
-    if recovery_active:
-        run_percent = max(run_percent, policy.recovery_max_delete_capacity_percent_run)
-        day_percent = max(day_percent, policy.recovery_max_delete_capacity_percent_day)
     run_percent_cap = capacity_base * run_percent / 100.0
     day_percent_cap = capacity_base * day_percent / 100.0
     run_explicit_cap = policy.max_delete_gb_per_run * 1024**3
@@ -876,7 +795,6 @@ def select_deletions(
     selected: list[DecisionResult] = []
     freed = 0.0
     remaining_size = current_size
-    oversize_recovery_selected = False
     for result in eligible:
         if len(selected) >= min(run_count_cap, remaining_count) or remaining_size <= target_size:
             break
@@ -889,29 +807,7 @@ def select_deletions(
         freed += size
         remaining_size = max(remaining_size - size, 0.0)
 
-    # 正常模式不会越过单轮 GB 上限；严重超额时若所有低价值候选都比
-    # 单轮上限大，允许一个仍在日上限内的大种子，避免容量闭环永久卡死。
-    if (
-        recovery_active
-        and not selected
-        and eligible
-        and run_count_cap > 0
-        and remaining_count > 0
-        and run_byte_cap > 0
-        and remaining_daily_bytes > 0
-    ):
-        for result in eligible:
-            size = by_hash[result.torrent_hash].total_size
-            if size <= run_byte_cap or size > remaining_daily_bytes:
-                continue
-            selected.append(result)
-            freed = size
-            oversize_recovery_selected = True
-            break
-
-    reasons: list[str] = ["capacity_recovery"] if recovery_active else []
-    if oversize_recovery_selected:
-        reasons.append("recovery_oversize_single")
+    reasons: list[str] = []
     if not selected:
         reasons.append("no_low_value_candidate")
     if run_count_cap and len(selected) >= run_count_cap and len(selected) < len(eligible):

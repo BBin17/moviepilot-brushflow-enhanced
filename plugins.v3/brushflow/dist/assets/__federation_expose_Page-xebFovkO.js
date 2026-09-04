@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { B as BrushFlowWorkbench } from './BrushFlowWorkbench-C_6ujR_x.js';
+import { B as BrushFlowV9 } from './BrushFlowV9-X2bIMFNs.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 
@@ -17,7 +17,7 @@ const _sfc_main = {
 
 
 return (_ctx, _cache) => {
-  return (_openBlock(), _createBlock(BrushFlowWorkbench, {
+  return (_openBlock(), _createBlock(BrushFlowV9, {
     api: __props.api,
     "plugin-id": "BrushFlow",
     "show-close": "",

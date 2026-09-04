@@ -1,87 +1,60 @@
-"""BrushFlow 6.2.0 增强删种策略测试。"""
+"""BrushFlow 9.0 统一删种策略回归测试。"""
 
-import threading
-
-from app.plugins.brushflow import BrushFlow, BrushTaskConfig
-
-
-def _make_plugin(task: BrushTaskConfig) -> BrushFlow:
-    """构造仅包含删种策略上下文的插件实例。"""
-    plugin = object.__new__(BrushFlow)
-    plugin._task_configs = {task.id: task}
-    plugin._task_context = threading.local()
-    plugin._task_context.task_id = task.id
-    return plugin
+import importlib.util
+from pathlib import Path
+import sys
 
 
-def _completed_info(seed_hours: float, inactive_minutes: float) -> dict:
-    """返回完成种子的最小实时状态。"""
-    return {
-        "total_size": 100,
-        "downloaded": 100,
-        "uploaded": 20,
-        "ratio": 0.2,
-        "avg_upspeed": 0,
-        "seeding_time": seed_hours * 3600,
-        "iatime": inactive_minutes * 60,
+MODULE_PATH = Path(__file__).parents[3] / "plugins.v3" / "brushflow" / "decision.py"
+SPEC = importlib.util.spec_from_file_location("brushflow_decision_delete_policy", MODULE_PATH)
+decision = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+sys.modules[SPEC.name] = decision
+SPEC.loader.exec_module(decision)
+
+
+def _seed(**overrides):
+    row = {
+        "hash": "seed", "total_size": 20 * 1024**3, "downloaded": 20 * 1024**3,
+        "progress": 100, "seeding_time": 80 * 3600, "iatime": 12 * 3600,
+        "upspeed": 0, "avg_upspeed": 0, "uploaded": 0,
+        "active_peers": 0, "num_leechs": 0, "hit_and_run": False,
     }
+    row.update(overrides)
+    return row
 
 
-class TestDeleteSafety:
-    """硬安全线优先于任一/全部条件和动态兜底。"""
-
-    def setup_method(self):
-        self.task = BrushTaskConfig(
-            {
-                "id": "safe-task",
-                "name": "咖啡",
-                "site_id": 1,
-                "downloader": "qb",
-                "min_seed_time": 72,
-                "min_inactivetime": 360,
-                "seed_time": 72,
-                "seed_inactivetime": 360,
-                "delete_condition_mode": "all",
-            }
-        )
-        self.plugin = _make_plugin(self.task)
-
-    def evaluate(self, info):
-        return self.plugin._BrushFlow__evaluate_conditions_for_delete(info, {})
-
-    def test_minimum_seed_time_blocks_delete(self):
-        should_delete, reason = self.evaluate(_completed_info(24, 400))
-        assert should_delete is False
-        assert "最少保种时长" in reason
-
-    def test_minimum_inactive_time_protects_active_seed(self):
-        should_delete, reason = self.evaluate(_completed_info(72, 120))
-        assert should_delete is False
-        assert "最少未活动时间" in reason
-
-    def test_all_conditions_delete_only_after_both_match(self):
-        should_delete, reason = self.evaluate(_completed_info(72, 360))
-        assert should_delete is True
-        assert " 且 " in reason
+def _policy(**overrides):
+    values = {
+        "min_seed_time_hours": 72, "score_threshold": 40,
+        "low_value_confirmations": 3, "low_value_span_minutes": 30,
+        "max_delete_percent_day": 100, "max_delete_capacity_percent_run": 100,
+        "max_delete_capacity_percent_day": 100,
+    }
+    values.update(overrides)
+    return decision.SmartPolicy(**values)
 
 
-class TestDynamicPriority:
-    """智能淘汰优先选择闲置更久且上传更慢的种子。"""
+def test_unfinished_and_hr_are_permanently_protected():
+    unfinished = decision.evaluate_candidate(_seed(downloaded=1, progress=5), _policy())
+    hit_and_run = decision.evaluate_candidate(_seed(hit_and_run=True), _policy())
+    assert unfinished.action == "blocked"
+    assert hit_and_run.action == "blocked"
 
-    def test_smart_sort_prefers_idle_slow_seed(self):
-        idle_slow = {
-            "iatime": 12 * 3600,
-            "avg_upspeed": 0,
-            "seeding_time": 80 * 3600,
-            "total_size": 10,
-        }
-        active_fast = {
-            "iatime": 30 * 60,
-            "avg_upspeed": 2 * 1024 * 1024,
-            "seeding_time": 100 * 3600,
-            "total_size": 50,
-        }
-        assert BrushFlow._dynamic_sort_key(idle_slow, "smart") > BrushFlow._dynamic_sort_key(
-            active_fast,
-            "smart",
-        )
+
+def test_minimum_site_seed_time_is_a_hard_floor():
+    result = decision.evaluate_candidate(_seed(seeding_time=24 * 3600), _policy())
+    assert result.action == "blocked"
+    assert "min_seed_time" in result.reason_codes
+
+
+def test_equal_value_prefers_larger_capacity_release():
+    history = []
+    for at in (0, 1800, 3600):
+        history.extend([{ "at": at, "hash": key, "low_value": True, "uploaded": 0 } for key in ("small", "large")])
+    result = decision.select_deletions(
+        [_seed(hash="small", total_size=5 * 1024**3), _seed(hash="large", total_size=50 * 1024**3)],
+        _policy(max_delete_per_run=1), current_size=100 * 1024**3,
+        min_size=40 * 1024**3, max_size=90 * 1024**3, history=history,
+    )
+    assert [item.torrent_hash for item in result.selected] == ["large"]

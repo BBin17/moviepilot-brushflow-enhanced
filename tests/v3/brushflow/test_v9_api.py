@@ -1,21 +1,23 @@
-"""需要 MoviePilot 测试环境的 8.0 策略 API 与守门测试。"""
+"""需要 MoviePilot 测试环境的 9.0 统一 API 与守门测试。"""
 
 import threading
 import time
 from types import SimpleNamespace
 
 from app.plugins.brushflow import BrushFlow, BrushTaskConfig
+from app.plugins.brushflow.v9 import migrate_v8_task
 
 
 def make_plugin(task):
     plugin = object.__new__(BrushFlow)
     plugin._task_configs = {task.id: task}
+    plugin._task_documents = {task.id: migrate_v8_task(task.to_dict())}
     plugin._task_locks = {task.id: threading.Lock()}
     plugin._runtime_lock = threading.Lock()
     plugin._runtime = {task.id: {"state": "idle", "operation": None, "last_error": None}}
     plugin._save_config = lambda: None
     plugin._append_decision_audit = lambda *_: None
-    plugin._build_task_detail = lambda task_id: {"task": plugin._task_configs[task_id].to_dict()}
+    plugin._build_task_overview = lambda task_id: {"task": plugin._task_configs[task_id].to_dict()}
     return plugin
 
 
@@ -29,7 +31,6 @@ def smart_task(**overrides):
             "min_seed_time": 48,
             "smart_enabled": True,
             "smart_shadow_until": time.time() + 48 * 3600,
-            "smart_migration_version": 8,
             **overrides,
         }
     )
@@ -37,26 +38,10 @@ def smart_task(**overrides):
 
 def test_strategy_api_routes_are_registered():
     paths = {row["path"] for row in object.__new__(BrushFlow).get_api()}
-    assert "/tasks/{task_id}/strategy/activate" in paths
-    assert "/tasks/{task_id}/strategy/extend" in paths
-    assert "/tasks/{task_id}/strategy/pause" in paths
-    assert "/tasks/{task_id}/strategy/resume" in paths
-    assert "/tasks/{task_id}/strategy/rollback" in paths
-
-
-def test_manual_activate_extend_pause_and_rollback():
-    task = smart_task()
-    plugin = make_plugin(task)
-    assert plugin.activate_smart_strategy(task.id).success is True
-    assert task.smart_shadow_until is None
-    assert plugin.extend_smart_shadow(task.id).success is True
-    assert task.smart_shadow_until > time.time()
-    assert plugin.pause_smart_deletion(task.id).success is True
-    assert task.smart_delete_paused is True
-    assert plugin.resume_smart_deletion(task.id).success is True
-    assert task.smart_delete_paused is False
-    assert plugin.rollback_smart_engine(task.id).success is True
-    assert task.smart_engine == "legacy_7_3"
+    assert "/tasks/{task_id}/actions/{action}" in paths
+    assert "/tasks/{task_id}/strategy/rollback" not in paths
+    assert "/tasks/{task_id}/run" not in paths
+    assert "/tasks/{task_id}/check" not in paths
 
 
 def test_strategy_operation_respects_task_lock():
@@ -64,7 +49,7 @@ def test_strategy_operation_respects_task_lock():
     plugin = make_plugin(task)
     plugin._task_locks[task.id].acquire()
     try:
-        response = plugin.activate_smart_strategy(task.id)
+        response = plugin.run_task_action(task.id, "activate_deletion")
     finally:
         plugin._task_locks[task.id].release()
     assert response.success is False

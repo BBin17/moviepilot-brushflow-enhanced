@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
-from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
@@ -36,7 +35,7 @@ from app.schemas.types import EventType
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
 
-from .models import BrushFlowSettingsPayload, BrushTaskPayload, BrushTaskStatePayload
+from .models import BrushFlowSettingsPayload
 from .signin import signin_site, success_message
 from .version import __version__
 from .decision import (
@@ -59,6 +58,7 @@ from .learning import (
     update_learning_state,
 )
 from .download_health import (
+    DownloadHealthPolicy,
     HEALTH_COMPLETED,
     HEALTH_CHECKING,
     HEALTH_DOWNLOADING,
@@ -71,9 +71,12 @@ from .download_health import (
     append_download_sample,
     assess_download_health,
     health_label,
+    next_health_action,
     policy_for_profile,
 )
-from .migration import migrate_task_rows_v8
+from .v9 import TaskConfigV9, migrate_task_rows_v9
+from .presentation import build_health_summary
+from .repository import TaskRepository
 
 
 TASK_CONFIG_FIELDS = (
@@ -100,25 +103,14 @@ TASK_CONFIG_FIELDS = (
     "seeder",
     "timezone_offset",
     "pubtime",
-    "seed_time",
-    "hr_seed_time",
-    "seed_ratio",
-    "seed_size",
-    "download_time",
-    "seed_avgspeed",
-    "seed_inactivetime",
     "min_seed_time",
-    "min_inactivetime",
     "smart_enabled",
     "smart_profile",
-    "smart_engine",
     "smart_selection_enabled",
     "smart_adaptive_enabled",
     "smart_selection_relax_filters",
     "smart_selection_min_score",
     "smart_selection_max_add_per_run",
-    "smart_min_ratio",
-    "smart_min_uploaded",
     "smart_ratio_weight",
     "smart_cold_inactive_minutes",
     "smart_protect_active_demand",
@@ -137,35 +129,18 @@ TASK_CONFIG_FIELDS = (
     "smart_max_delete_capacity_percent_day",
     "smart_max_delete_gb_per_run",
     "smart_max_delete_gb_per_day",
-    "smart_recovery_enabled",
-    "smart_recovery_trigger_percent",
-    "smart_recovery_max_delete_percent_day",
-    "smart_recovery_max_delete_capacity_percent_run",
-    "smart_recovery_max_delete_capacity_percent_day",
-    "smart_allow_proactive_delete",
-    "smart_required_conditions",
     "smart_shadow_until",
     "smart_shadow_started_at",
     "smart_shadow_extensions",
     "smart_delete_paused",
     "smart_auto_activate",
-    "smart_migration_version",
-    "delete_condition_mode",
-    "dynamic_require_conditions",
-    "dynamic_sort_mode",
-    "delete_dry_run",
     "delete_files",
-    "delete_min_size",
-    "delete_max_size",
-    "delete_size_range",
     "up_speed",
     "dl_speed",
     "auto_archive_days",
     "save_path",
     "delete_except_tags",
     "except_subscribe",
-    "proxy_delete",
-    "del_no_free",
     "qb_category",
     "site_hr_active",
     "site_skip_tips",
@@ -190,7 +165,6 @@ LEGACY_SITE_OVERRIDE_FIELDS = {
     "seed_avgspeed",
     "seed_inactivetime",
     "save_path",
-    "proxy_delete",
     "qb_category",
     "site_hr_active",
     "site_skip_tips",
@@ -204,86 +178,6 @@ GLOBAL_LIMIT_FIELDS = (
     "global_maxupspeed",
     "global_maxdlspeed",
 )
-
-GLOBAL_DYNAMIC_DELETE_FIELDS = (
-    "global_proxy_delete",
-    "global_delete_min_size",
-    "global_delete_max_size",
-    "global_delete_size_range",
-)
-
-SMART_PRESETS = {
-    "conservative": {
-        "smart_selection_max_add_per_run": 2,
-        "smart_selection_min_score": 40,
-        "smart_cold_inactive_minutes": 720,
-        "smart_candidate_confirmations": 4,
-        "smart_candidate_confirmation_minutes": 60,
-        "smart_score_threshold": 35,
-        "smart_max_delete_capacity_percent_day": 4,
-        "smart_recovery_enabled": True,
-        "smart_recovery_trigger_percent": 125,
-        "smart_recovery_max_delete_percent_day": 20,
-        "smart_recovery_max_delete_capacity_percent_run": 20,
-        "smart_recovery_max_delete_capacity_percent_day": 40,
-    },
-    "balanced": {
-        "smart_selection_max_add_per_run": 5,
-        "smart_selection_min_score": 30,
-        "smart_cold_inactive_minutes": 360,
-        "smart_candidate_confirmations": 3,
-        "smart_candidate_confirmation_minutes": 30,
-        "smart_score_threshold": 40,
-        "smart_max_delete_capacity_percent_day": 8,
-        "smart_recovery_enabled": True,
-        "smart_recovery_trigger_percent": 125,
-        "smart_recovery_max_delete_percent_day": 20,
-        "smart_recovery_max_delete_capacity_percent_run": 20,
-        "smart_recovery_max_delete_capacity_percent_day": 40,
-    },
-    "aggressive": {
-        "smart_selection_max_add_per_run": 8,
-        "smart_selection_min_score": 22,
-        "smart_cold_inactive_minutes": 180,
-        "smart_candidate_confirmations": 2,
-        "smart_candidate_confirmation_minutes": 15,
-        "smart_score_threshold": 48,
-        "smart_max_delete_capacity_percent_day": 15,
-        "smart_recovery_enabled": True,
-        "smart_recovery_trigger_percent": 125,
-        "smart_recovery_max_delete_percent_day": 20,
-        "smart_recovery_max_delete_capacity_percent_run": 20,
-        "smart_recovery_max_delete_capacity_percent_day": 40,
-    },
-}
-
-SMART_ADVANCED_FIELDS = (
-    "smart_selection_min_score",
-    "smart_selection_max_add_per_run",
-    "smart_ratio_weight",
-    "smart_cold_inactive_minutes",
-    "smart_demand_confirmations",
-    "smart_candidate_confirmations",
-    "smart_candidate_confirmation_minutes",
-    "smart_capacity_trigger_percent",
-    "smart_capacity_target_percent",
-    "smart_score_threshold",
-    "smart_score_margin",
-    "smart_max_delete_per_run",
-    "smart_max_delete_percent_day",
-    "smart_max_delete_capacity_percent_run",
-    "smart_max_delete_capacity_percent_day",
-    "smart_max_delete_gb_per_run",
-    "smart_max_delete_gb_per_day",
-    "smart_recovery_enabled",
-    "smart_recovery_trigger_percent",
-    "smart_recovery_max_delete_percent_day",
-    "smart_recovery_max_delete_capacity_percent_run",
-    "smart_recovery_max_delete_capacity_percent_day",
-    "smart_allow_proactive_delete",
-    "smart_required_conditions",
-)
-
 
 class BrushTaskConfig:
     """
@@ -319,22 +213,9 @@ class BrushTaskConfig:
         self.seeder = self._clean_text(config.get("seeder"))
         self.timezone_offset = float(self._parse_number(config.get("timezone_offset")) or 0)
         self.pubtime = self._clean_text(config.get("pubtime"))
-        self.seed_time = self._parse_number(config.get("seed_time"))
-        self.hr_seed_time = self._parse_number(config.get("hr_seed_time"))
-        self.seed_ratio = self._parse_number(config.get("seed_ratio"))
-        self.seed_size = self._parse_number(config.get("seed_size"))
-        self.download_time = self._parse_number(config.get("download_time"))
-        self.seed_avgspeed = self._parse_number(config.get("seed_avgspeed"))
-        self.seed_inactivetime = self._parse_number(config.get("seed_inactivetime"))
-        self.min_seed_time = self._parse_number(
-            config.get("min_seed_time", config.get("dynamic_min_seed_time"))
-        )
-        self.min_inactivetime = self._parse_number(
-            config.get("min_inactivetime", config.get("dynamic_min_inactivetime"))
-        )
+        self.min_seed_time = self._parse_number(config.get("min_seed_time"))
         self.smart_enabled = bool(config.get("smart_enabled", False))
         self.smart_profile = str(config.get("smart_profile") or "balanced")
-        self.smart_engine = str(config.get("smart_engine") or "v8")
         self.smart_selection_enabled = bool(
             config.get("smart_selection_enabled", self.smart_enabled)
         )
@@ -351,8 +232,6 @@ class BrushTaskConfig:
         self.smart_selection_max_add_per_run = int(
             self._parse_number(config.get("smart_selection_max_add_per_run", 5)) or 5
         )
-        self.smart_min_ratio = self._parse_number(config.get("smart_min_ratio", 0)) or 0
-        self.smart_min_uploaded = self._parse_number(config.get("smart_min_uploaded"))
         smart_ratio_weight = self._parse_number(config.get("smart_ratio_weight", 5))
         self.smart_ratio_weight = 5 if smart_ratio_weight is None else min(smart_ratio_weight, 5)
         smart_cold_inactive_minutes = self._parse_number(
@@ -414,23 +293,6 @@ class BrushTaskConfig:
         self.smart_max_delete_gb_per_day = self._parse_number(
             config.get("smart_max_delete_gb_per_day")
         )
-        self.smart_recovery_enabled = bool(config.get("smart_recovery_enabled", True))
-        self.smart_recovery_trigger_percent = float(
-            self._parse_number(config.get("smart_recovery_trigger_percent", 125)) or 125
-        )
-        self.smart_recovery_max_delete_percent_day = float(
-            self._parse_number(config.get("smart_recovery_max_delete_percent_day", 20)) or 0
-        )
-        self.smart_recovery_max_delete_capacity_percent_run = float(
-            self._parse_number(config.get("smart_recovery_max_delete_capacity_percent_run", 20)) or 0
-        )
-        self.smart_recovery_max_delete_capacity_percent_day = float(
-            self._parse_number(config.get("smart_recovery_max_delete_capacity_percent_day", 40)) or 0
-        )
-        self.smart_allow_proactive_delete = bool(
-            config.get("smart_allow_proactive_delete", False)
-        )
-        self.smart_required_conditions = bool(config.get("smart_required_conditions", False))
         self.smart_shadow_until = self._parse_number(config.get("smart_shadow_until"))
         self.smart_shadow_started_at = self._parse_number(config.get("smart_shadow_started_at"))
         self.smart_shadow_extensions = int(
@@ -438,31 +300,13 @@ class BrushTaskConfig:
         )
         self.smart_delete_paused = bool(config.get("smart_delete_paused", False))
         self.smart_auto_activate = bool(config.get("smart_auto_activate", True))
-        self.smart_migration_version = int(
-            self._parse_number(config.get("smart_migration_version", 0)) or 0
-        )
-        self.delete_condition_mode = config.get("delete_condition_mode", "any")
-        self.dynamic_require_conditions = bool(config.get("dynamic_require_conditions", False))
-        self.dynamic_sort_mode = config.get("dynamic_sort_mode", "smart")
-        self.delete_dry_run = bool(config.get("delete_dry_run", True))
         self.delete_files = bool(config.get("delete_files", True))
-        self.delete_min_size = self._parse_number(config.get("delete_min_size"))
-        self.delete_max_size = self._parse_number(config.get("delete_max_size"))
-        self.delete_size_range = self._clean_text(config.get("delete_size_range"))
-        if self.delete_size_range and (self.delete_min_size is None or self.delete_max_size is None):
-            limits = [float(item) for item in self.delete_size_range.split("-")]
-            self.delete_min_size = limits[0]
-            self.delete_max_size = limits[1] if len(limits) > 1 else limits[0]
-        if self.delete_min_size is not None and self.delete_max_size is not None:
-            self.delete_size_range = f"{self.delete_min_size:g}-{self.delete_max_size:g}"
         self.up_speed = self._parse_number(config.get("up_speed"))
         self.dl_speed = self._parse_number(config.get("dl_speed"))
         self.auto_archive_days = self._parse_number(config.get("auto_archive_days"))
         self.save_path = self._clean_text(config.get("save_path"))
         self.delete_except_tags = self._clean_text(config.get("delete_except_tags"))
         self.except_subscribe = bool(config.get("except_subscribe", True))
-        self.proxy_delete = bool(config.get("proxy_delete", False))
-        self.del_no_free = bool(config.get("del_no_free", False)) if self.freeleech in {"free", "2xfree"} else False
         self.qb_category = self._clean_text(config.get("qb_category"))
         self.site_hr_active = bool(config.get("site_hr_active", False))
         self.site_skip_tips = bool(config.get("site_skip_tips", False))
@@ -518,7 +362,7 @@ class BrushFlow(_PluginBase):
     plugin_order = 21
     auth_level = 2
 
-    DATA_SCHEMA_VERSION = 8
+    DATA_SCHEMA_VERSION = 9
     MAX_RUN_HISTORY = 50
     GLOBAL_BRUSH_TAG = "刷流"
     SIGNIN_DATA_KEY = "signin_history"
@@ -543,10 +387,10 @@ class BrushFlow(_PluginBase):
     def init_plugin(self, config: dict = None) -> None:
         """初始化全局开关、任务配置、运行锁和历史数据迁移"""
         raw_config = config or {}
+        self._repository = TaskRepository(self)
         self._task_context = threading.local()
         self._task_locks: Dict[str, threading.Lock] = {}
         self._brush_lock = threading.Lock()
-        self._global_delete_lock = threading.Lock()
         self._runtime_lock = threading.Lock()
         self._runtime: Dict[str, dict] = {}
         self._subscribe_infos: Dict[str, List[str]] = {}
@@ -565,43 +409,32 @@ class BrushFlow(_PluginBase):
                 value = raw_config.get(field.removeprefix("global_"))
             parsed_value = BrushTaskConfig._parse_number(value)
             setattr(self, f"_{field}", parsed_value if parsed_value and parsed_value > 0 else None)
-        global_proxy_delete = raw_config.get(
-            "global_proxy_delete",
-            raw_config.get("proxy_delete", False) if legacy_config else False,
-        )
-        legacy_delete_range = raw_config.get("delete_size_range") if legacy_config else None
-        (
-            self._global_proxy_delete,
-            self._global_delete_min_size,
-            self._global_delete_max_size,
-            self._global_delete_size_range,
-        ) = self._validate_global_dynamic_delete_config(
-            global_proxy_delete,
-            raw_config.get("global_delete_size_range", legacy_delete_range),
-            raw_config.get("global_delete_min_size"),
-            raw_config.get("global_delete_max_size"),
-        )
-
         task_rows = raw_config.get("tasks") if isinstance(raw_config.get("tasks"), list) else None
         migrated = task_rows is None and bool(raw_config.get("brushsites"))
         if migrated:
             task_rows = self._migrate_legacy_config(raw_config)
         task_rows = task_rows or []
-        task_rows, migrated_v8 = self._migrate_v8_task_rows(task_rows)
+        v9_backups = self._repository.get_global("v9_task_config_backups", {}) or {}
+        task_rows, v9_backups, migrated_v9 = migrate_task_rows_v9(task_rows, v9_backups)
+        if migrated_v9:
+            self._repository.save_global("v9_task_config_backups", v9_backups)
 
         self._task_configs: Dict[str, BrushTaskConfig] = {}
+        self._task_documents: Dict[str, TaskConfigV9] = {}
         for row in task_rows:
             if not isinstance(row, dict):
                 continue
-            task = BrushTaskConfig(row)
+            document = TaskConfigV9.model_validate(row)
+            task = BrushTaskConfig(document.to_runtime())
             if not self._validate_task_reference(task, notify=False):
                 task.enabled = False
             self._task_configs[task.id] = task
+            self._task_documents[task.id] = document
             self._task_locks[task.id] = threading.Lock()
             self._runtime[task.id] = {"state": "idle", "operation": None, "last_error": None}
 
         normalized = self._current_config()
-        if migrated or migrated_v8 or raw_config != normalized:
+        if migrated or migrated_v9 or raw_config != normalized:
             self.update_config(normalized)
         self._migrate_legacy_data()
         self._migrate_torrent_identity_data()
@@ -680,6 +513,20 @@ class BrushFlow(_PluginBase):
                 "summary": "获取刷流任务详情",
             },
             {
+                "path": "/tasks/{task_id}/torrents",
+                "endpoint": self.get_task_torrents,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "分页获取任务种子",
+            },
+            {
+                "path": "/tasks/{task_id}/events",
+                "endpoint": self.get_task_events,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "分页获取任务事件",
+            },
+            {
                 "path": "/tasks/{task_id}",
                 "endpoint": self.update_task,
                 "methods": ["PUT"],
@@ -694,67 +541,11 @@ class BrushFlow(_PluginBase):
                 "summary": "删除刷流任务",
             },
             {
-                "path": "/tasks/{task_id}/state",
-                "endpoint": self.update_task_state,
+                "path": "/tasks/{task_id}/actions/{action}",
+                "endpoint": self.run_task_action,
                 "methods": ["POST"],
                 "auth": "bear",
-                "summary": "启用或暂停刷流任务",
-            },
-            {
-                "path": "/tasks/{task_id}/run",
-                "endpoint": self.run_task,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "立即执行刷流刷新",
-            },
-            {
-                "path": "/tasks/{task_id}/check",
-                "endpoint": self.check_task,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "立即检查刷流种子",
-            },
-            {
-                "path": "/tasks/{task_id}/clear",
-                "endpoint": self.clear_task_data,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "清除单个刷流任务数据",
-            },
-            {
-                "path": "/tasks/{task_id}/strategy/activate",
-                "endpoint": self.activate_smart_strategy,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "提前启用智能删种",
-            },
-            {
-                "path": "/tasks/{task_id}/strategy/extend",
-                "endpoint": self.extend_smart_shadow,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "延长智能删种观察期",
-            },
-            {
-                "path": "/tasks/{task_id}/strategy/pause",
-                "endpoint": self.pause_smart_deletion,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "暂停自动删种",
-            },
-            {
-                "path": "/tasks/{task_id}/strategy/resume",
-                "endpoint": self.resume_smart_deletion,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "恢复自动删种",
-            },
-            {
-                "path": "/tasks/{task_id}/strategy/rollback",
-                "endpoint": self.rollback_smart_engine,
-                "methods": ["POST"],
-                "auth": "bear",
-                "summary": "切换 7.3 兼容引擎",
+                "summary": "执行统一任务操作",
             },
             {
                 "path": "/signin/run",
@@ -827,18 +618,6 @@ class BrushFlow(_PluginBase):
                     "func_kwargs": {"task_id": task.id},
                 }
             )
-            promotion_expiry = self._next_promotion_expiry(task)
-            if promotion_expiry:
-                services.append(
-                    {
-                        "id": f"Task_{task.id}_PromotionExpiry",
-                        "name": f"促销到期检查 - {task.name}",
-                        "trigger": "date",
-                        "func": self._check_promotion_expiry,
-                        "kwargs": {"run_date": promotion_expiry},
-                        "func_kwargs": {"task_id": task.id},
-                    }
-                )
         if self._signin_enabled:
             try:
                 signin_trigger: Union[str, CronTrigger] = CronTrigger.from_crontab(
@@ -896,7 +675,6 @@ class BrushFlow(_PluginBase):
             CronTrigger.from_crontab(signin_cron, timezone=settings.TZ)
         except (TypeError, ValueError) as err:
             return schemas.Response(success=False, message=f"站点签到 CRON 无效：{str(err)}")
-        global_dynamic_delete_was_enabled = self._global_dynamic_delete_enabled()
         self._enabled = payload.enabled
         self._show_sidebar_nav = payload.show_sidebar_nav
         self._signin_enabled = payload.signin_enabled
@@ -905,62 +683,102 @@ class BrushFlow(_PluginBase):
         self._signin_sites = self._normalize_site_ids(payload.signin_sites)
         for field in GLOBAL_LIMIT_FIELDS:
             setattr(self, f"_{field}", getattr(payload, field))
-        for field in GLOBAL_DYNAMIC_DELETE_FIELDS:
-            setattr(self, f"_{field}", getattr(payload, field))
-        if global_dynamic_delete_was_enabled and not self._global_dynamic_delete_enabled():
-            for task in self._task_configs.values():
-                if task.proxy_delete and not task.delete_size_range:
-                    task.proxy_delete = False
         self._save_config()
         self._refresh_scheduler()
         return schemas.Response(success=True, data=self._build_status_data())
 
-    def create_task(self, payload: BrushTaskPayload) -> schemas.Response:
+    def create_task(self, payload: TaskConfigV9) -> schemas.Response:
         """创建一个站点与下载器均独立的刷流任务"""
-        task_data = payload.model_dump()
-        task_data["id"] = uuid.uuid4().hex
-        task_data = self._prepare_smart_task_update(None, task_data)
-        task = BrushTaskConfig(task_data)
+        document = payload.model_copy(deep=True)
+        document.id = uuid.uuid4().hex
+        document.revision = 1
+        if document.deletion.enabled:
+            now = time.time()
+            document.deletion.observation_started_at = now
+            document.deletion.observation_until = now + 48 * 3600
+        task = BrushTaskConfig(document.to_runtime())
         if not self._validate_task_reference(task):
             return schemas.Response(success=False, message="站点或下载器配置无效")
         self._task_configs[task.id] = task
+        self._task_documents[task.id] = document
         self._task_locks[task.id] = threading.Lock()
         self._runtime[task.id] = {"state": "idle", "operation": None, "last_error": None}
         self._save_config()
         self._refresh_scheduler()
-        return schemas.Response(success=True, data=self._build_task_detail(task.id))
+        return schemas.Response(success=True, data=self._build_task_overview(task.id))
 
-    def get_task_detail(
+    def get_task_detail(self, task_id: str) -> schemas.Response:
+        """返回任务配置、统计和统一展示摘要；种子与事件使用独立分页接口。"""
+        if task_id not in self._task_configs:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        return schemas.Response(
+            success=True,
+            data=self._build_task_overview(task_id),
+        )
+
+    def update_task(self, task_id: str, payload: TaskConfigV9) -> schemas.Response:
+        """更新任务配置并保持原任务 ID 与历史数据关联"""
+        if task_id not in self._task_configs:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if self._is_task_busy(task_id):
+            return schemas.Response(success=False, message="任务正在执行，请稍后再修改")
+        previous_document = self._task_documents[task_id]
+        if payload.revision != previous_document.revision:
+            return schemas.Response(success=False, message="任务配置已被更新，请刷新后重试")
+        document = payload.model_copy(deep=True)
+        document.id = task_id
+        document.revision = previous_document.revision + 1
+        previous = self._task_configs[task_id]
+        newly_enabled = document.deletion.enabled and not previous.smart_enabled
+        risk_increased = bool(
+            document.deletion.enabled
+            and (
+                document.strategy.overrides.deletion_score_threshold > previous.smart_score_threshold
+                or document.strategy.overrides.candidate_confirmations < previous.smart_candidate_confirmations
+                or document.strategy.overrides.confirmation_minutes < previous.smart_candidate_confirmation_minutes
+            )
+        )
+        if newly_enabled or risk_increased:
+            now = time.time()
+            document.deletion.observation_started_at = now
+            document.deletion.observation_until = now + (48 if newly_enabled else 24) * 3600
+        task = BrushTaskConfig(document.to_runtime())
+        if not self._validate_task_reference(task):
+            return schemas.Response(success=False, message="站点或下载器配置无效")
+        self._task_configs[task_id] = task
+        self._task_documents[task_id] = document
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, data=self._build_task_overview(task_id))
+
+    def get_task_torrents(
         self,
         task_id: str,
         state: str = Query("active", pattern="^(active|deleted|all)$"),
         page: int = Query(1, ge=1),
         page_size: int = Query(50, ge=10, le=200),
     ) -> schemas.Response:
-        """分页返回任务配置、统计、诊断记录和种子明细"""
         if task_id not in self._task_configs:
             return schemas.Response(success=False, message="刷流任务不存在")
         return schemas.Response(
             success=True,
-            data=self._build_task_detail(task_id, state=state, page=page, page_size=page_size),
+            data=self._paginate_task_torrents(task_id, state=state, page=page, page_size=page_size),
         )
 
-    def update_task(self, task_id: str, payload: BrushTaskPayload) -> schemas.Response:
-        """更新任务配置并保持原任务 ID 与历史数据关联"""
+    def get_task_events(
+        self,
+        task_id: str,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=10, le=100),
+    ) -> schemas.Response:
         if task_id not in self._task_configs:
             return schemas.Response(success=False, message="刷流任务不存在")
-        if self._is_task_busy(task_id):
-            return schemas.Response(success=False, message="任务正在执行，请稍后再修改")
-        task_data = payload.model_dump()
-        task_data["id"] = task_id
-        task_data = self._prepare_smart_task_update(self._task_configs[task_id], task_data)
-        task = BrushTaskConfig(task_data)
-        if not self._validate_task_reference(task):
-            return schemas.Response(success=False, message="站点或下载器配置无效")
-        self._task_configs[task_id] = task
-        self._save_config()
-        self._refresh_scheduler()
-        return schemas.Response(success=True, data=self._build_task_detail(task_id))
+        rows = self._get_task_data(task_id, "runs") or []
+        start = (page - 1) * page_size
+        return schemas.Response(
+            success=True,
+            data={"items": rows[start : start + page_size], "total": len(rows), "page": page, "page_size": page_size},
+        )
 
     def delete_task(self, task_id: str) -> schemas.Response:
         """删除没有活跃种子的任务及其独立历史数据"""
@@ -974,10 +792,10 @@ class BrushFlow(_PluginBase):
         if active_count:
             return schemas.Response(success=False, message="任务仍有活跃种子，请先处理后再删除")
         self._task_configs.pop(task_id, None)
+        self._task_documents.pop(task_id, None)
         self._task_locks.pop(task_id, None)
         self._runtime.pop(task_id, None)
-        for data_name in self.TASK_DATA_NAMES:
-            self.del_data(self._task_data_key(task_id, data_name))
+        self._repository.delete_task(task_id, self.TASK_DATA_NAMES)
         self._save_config()
         self._refresh_scheduler()
         try:
@@ -987,16 +805,6 @@ class BrushFlow(_PluginBase):
             logger.warning(f"提交刷流任务标签清理失败：{str(err)}")
         return schemas.Response(success=True, data=self._build_status_data())
 
-    def update_task_state(self, task_id: str, payload: BrushTaskStatePayload) -> schemas.Response:
-        """启用或暂停单个任务并更新对应宿主调度"""
-        task = self._task_configs.get(task_id)
-        if not task:
-            return schemas.Response(success=False, message="刷流任务不存在")
-        task.enabled = payload.enabled
-        self._save_config()
-        self._refresh_scheduler()
-        return schemas.Response(success=True, data=self._build_task_detail(task_id))
-
     def run_task(self, task_id: str) -> schemas.Response:
         """异步提交单个任务的立即刷流刷新"""
         return self._submit_task_operation(task_id, "brush")
@@ -1004,6 +812,88 @@ class BrushFlow(_PluginBase):
     def check_task(self, task_id: str) -> schemas.Response:
         """异步提交单个任务的立即状态检查"""
         return self._submit_task_operation(task_id, "check")
+
+    def run_task_action(self, task_id: str, action: str) -> schemas.Response:
+        """9.0 单一交互入口；旧版策略路由不再注册。"""
+        task = self._task_configs.get(task_id)
+        document = self._task_documents.get(task_id)
+        if not task or not document:
+            return schemas.Response(success=False, message="刷流任务不存在")
+        if action == "run_selection":
+            return self.run_task(task_id)
+        if action == "run_check":
+            return self.check_task(task_id)
+        if self._is_task_busy(task_id):
+            return schemas.Response(success=False, message="任务正在执行，请稍后再操作")
+        if action in {"retry_stalled", "pause_stalled"}:
+            torrents = self._get_task_data(task_id, "torrents") or {}
+            hashes = [
+                str(torrent_hash)
+                for torrent_hash, row in torrents.items()
+                if isinstance(row, dict)
+                and not row.get("deleted")
+                and row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_PAUSED}
+            ]
+            if not hashes:
+                return schemas.Response(success=True, message="当前没有需要处理的异常下载", data=self._build_task_overview(task_id))
+            with self._task_scope(task_id):
+                self.__apply_download_health_actions(
+                    hashes if action == "retry_stalled" else [],
+                    hashes if action == "pause_stalled" else [],
+                )
+            health_store = self._get_task_data(task_id, "download_health") or {}
+            now = time.time()
+            for torrent_hash in hashes:
+                record = health_store.get(torrent_hash)
+                if not isinstance(record, dict):
+                    continue
+                if action == "retry_stalled":
+                    record.update({"repair_at": now, "paused_at": None})
+                else:
+                    record["paused_at"] = now
+            self._save_task_data(task_id, "download_health", health_store)
+            self._append_decision_audit(task_id, {"at": now, "kind": "task_action", "action": action, "hashes": hashes})
+            return schemas.Response(
+                success=True,
+                message="异常下载已重新汇报并恢复" if action == "retry_stalled" else "异常下载已暂停并保留数据",
+                data=self._build_task_overview(task_id),
+            )
+        now = time.time()
+        messages = {
+            "pause_task": "任务已暂停",
+            "resume_task": "任务已恢复",
+            "activate_deletion": "已结束观察并启用自动删种",
+            "extend_observation": "安全观察已延长24小时",
+            "pause_deletion": "自动删种已暂停",
+            "resume_deletion": "自动删种已恢复",
+        }
+        if action not in messages:
+            return schemas.Response(success=False, message="未知任务操作")
+        if action in {"activate_deletion", "extend_observation", "pause_deletion", "resume_deletion"} and not document.deletion.enabled:
+            return schemas.Response(success=False, message="当前任务未启用自动删种")
+        if action in {"pause_task", "resume_task"}:
+            task.enabled = action == "resume_task"
+            document.identity.enabled = task.enabled
+        elif action == "activate_deletion":
+            task.smart_shadow_until = None
+            task.smart_delete_paused = False
+            document.deletion.observation_until = None
+            document.deletion.paused = False
+        elif action == "extend_observation":
+            until = max(float(task.smart_shadow_until or 0), now) + 24 * 3600
+            task.smart_shadow_until = until
+            task.smart_shadow_extensions += 1
+            document.deletion.observation_until = until
+            document.deletion.observation_extensions += 1
+        elif action in {"pause_deletion", "resume_deletion"}:
+            paused = action == "pause_deletion"
+            task.smart_delete_paused = paused
+            document.deletion.paused = paused
+        document.revision += 1
+        self._append_decision_audit(task_id, {"at": now, "kind": "task_action", "action": action})
+        self._save_config()
+        self._refresh_scheduler()
+        return schemas.Response(success=True, message=messages[action], data=self._build_task_overview(task_id))
 
     def run_signin(self) -> schemas.Response:
         """异步执行一次站点签到；手动执行不要求自动签到开关已打开。"""
@@ -1014,130 +904,9 @@ class BrushFlow(_PluginBase):
             logger.error(f"提交站点签到失败：{str(err)}")
             return schemas.Response(success=False, message=f"提交站点签到失败：{str(err)}")
 
-    def clear_task_data(self, task_id: str) -> schemas.Response:
-        """清除单个任务的统计、历史与托管记录"""
-        if task_id not in self._task_configs:
-            return schemas.Response(success=False, message="刷流任务不存在")
-        if self._is_task_busy(task_id):
-            return schemas.Response(success=False, message="任务正在执行，请稍后再清除")
-        for data_name in self.TASK_DATA_NAMES:
-            self._save_task_data(
-                task_id,
-                data_name,
-                [] if data_name in {"runs", "smart_history", "smart_deletions", "decision_audit"} else {},
-            )
-        return schemas.Response(success=True, data=self._build_task_detail(task_id))
-
-    def _strategy_operation(self, task_id: str, action: str) -> schemas.Response:
-        task = self._task_configs.get(task_id)
-        if not task:
-            return schemas.Response(success=False, message="刷流任务不存在")
-        if self._is_task_busy(task_id):
-            return schemas.Response(success=False, message="任务正在执行，请稍后再操作策略")
-        now = time.time()
-        if action == "activate":
-            task.smart_shadow_until = None
-            task.smart_delete_paused = False
-            message = "已提前结束影子观察；硬安全线和删除限额仍然生效"
-        elif action == "extend":
-            task.smart_shadow_until = max(float(task.smart_shadow_until or 0), now) + 24 * 3600
-            task.smart_shadow_extensions += 1
-            message = "影子观察已延长 24 小时"
-        elif action == "pause":
-            task.smart_delete_paused = True
-            message = "自动删种已暂停，仍会生成决策计划"
-        elif action == "resume":
-            task.smart_delete_paused = False
-            message = "自动删种已恢复"
-        elif action == "rollback":
-            task.smart_engine = "legacy_7_3" if task.smart_engine != "legacy_7_3" else "v8"
-            message = "已切换到 7.3 兼容引擎" if task.smart_engine == "legacy_7_3" else "已恢复 8.0 收益引擎"
-        else:
-            return schemas.Response(success=False, message="未知策略操作")
-        self._append_decision_audit(
-            task_id,
-            {"at": now, "kind": "strategy_action", "action": action, "message": message},
-        )
-        self._save_config()
-        return schemas.Response(success=True, message=message, data=self._build_task_detail(task_id))
-
-    def activate_smart_strategy(self, task_id: str) -> schemas.Response:
-        return self._strategy_operation(task_id, "activate")
-
-    def extend_smart_shadow(self, task_id: str) -> schemas.Response:
-        return self._strategy_operation(task_id, "extend")
-
-    def pause_smart_deletion(self, task_id: str) -> schemas.Response:
-        return self._strategy_operation(task_id, "pause")
-
-    def resume_smart_deletion(self, task_id: str) -> schemas.Response:
-        return self._strategy_operation(task_id, "resume")
-
-    def rollback_smart_engine(self, task_id: str) -> schemas.Response:
-        return self._strategy_operation(task_id, "rollback")
-
-    @staticmethod
-    def _smart_change_increases_risk(previous: BrushTaskConfig, current: dict) -> bool:
-        """识别会扩大自动删除范围的高级设置变更。"""
-        return any(
-            (
-                float(current.get("smart_score_threshold") or 0) > float(previous.smart_score_threshold or 0),
-                float(current.get("smart_cold_inactive_minutes") or 0) < float(previous.smart_cold_inactive_minutes or 0),
-                int(current.get("smart_candidate_confirmations") or 0) < int(previous.smart_candidate_confirmations or 0),
-                float(current.get("smart_candidate_confirmation_minutes") or 0) < float(previous.smart_candidate_confirmation_minutes or 0),
-                int(current.get("smart_max_delete_per_run") or 0) > int(previous.smart_max_delete_per_run or 0),
-                float(current.get("smart_max_delete_capacity_percent_day") or 0) > float(previous.smart_max_delete_capacity_percent_day or 0),
-                bool(current.get("smart_recovery_enabled")) and not previous.smart_recovery_enabled,
-                float(current.get("smart_recovery_trigger_percent") or 0) < float(previous.smart_recovery_trigger_percent or 0),
-                float(current.get("smart_recovery_max_delete_percent_day") or 0) > float(previous.smart_recovery_max_delete_percent_day or 0),
-                float(current.get("smart_recovery_max_delete_capacity_percent_run") or 0) > float(previous.smart_recovery_max_delete_capacity_percent_run or 0),
-                float(current.get("smart_recovery_max_delete_capacity_percent_day") or 0) > float(previous.smart_recovery_max_delete_capacity_percent_day or 0),
-                bool(current.get("smart_allow_proactive_delete")) and not previous.smart_allow_proactive_delete,
-            )
-        )
-
-    def _prepare_smart_task_update(
-        self,
-        previous: Optional[BrushTaskConfig],
-        task_data: dict,
-    ) -> dict:
-        """标准化预设；首次启用或风险扩大时自动进入安全观察期。"""
-        row = dict(task_data)
-        profile = str(row.get("smart_profile") or "balanced")
-        preset = SMART_PRESETS.get(profile)
-        preset_mismatch = bool(preset and any(
-            float(row.get(key) or 0) != float(value) for key, value in preset.items()
-        ))
-        advanced_changed = bool(
-            previous
-            and profile == previous.smart_profile
-            and any(getattr(previous, key) != row.get(key) for key in SMART_ADVANCED_FIELDS)
-        )
-        if preset and (preset_mismatch or advanced_changed):
-            row["smart_profile"] = "custom"
-        now = time.time()
-        newly_enabled = bool(row.get("smart_enabled")) and not bool(previous and previous.smart_enabled)
-        risk_increased = bool(previous and row.get("smart_enabled") and self._smart_change_increases_risk(previous, row))
-        if newly_enabled:
-            row["smart_shadow_started_at"] = now
-            row["smart_shadow_until"] = now + 48 * 3600
-            row["smart_shadow_extensions"] = 0
-        elif risk_increased:
-            row["smart_shadow_started_at"] = now
-            row["smart_shadow_until"] = now + 24 * 3600
-        row["smart_migration_version"] = 8
-        row["smart_allow_proactive_delete"] = bool(row.get("smart_allow_proactive_delete", False))
-        row["smart_recovery_enabled"] = bool(row.get("smart_recovery_enabled", True))
-        row["site_ratio_reached_behavior"] = row.get("site_ratio_reached_behavior") or "continue"
-        return row
-
     def _append_decision_audit(self, task_id: str, row: dict) -> None:
         """保存最近 500 条完整决策，实际调用下载器前也必须先写入。"""
-        history = self._get_task_data(task_id, "decision_audit") or []
-        if not isinstance(history, list):
-            history = []
-        history.append(dict(row))
-        self._save_task_data(task_id, "decision_audit", history[-500:])
+        self._repository.append_bounded(task_id, "decision_audit", row, 500)
 
     @eventmanager.register(EventType.PluginReload)
     def reload(self, event: Event) -> None:
@@ -1156,11 +925,25 @@ class BrushFlow(_PluginBase):
             "signin_notify": bool(getattr(self, "_signin_notify", True)),
             "signin_cron": getattr(self, "_signin_cron", "17 7 * * *"),
             "signin_sites": list(getattr(self, "_signin_sites", [])),
-            "tasks": [task.to_dict() for task in getattr(self, "_task_configs", {}).values()],
+            "tasks": [
+                self._serialize_task_document(task_id)
+                for task_id in getattr(self, "_task_configs", {})
+            ],
         }
         config.update({field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS})
-        config.update({field: getattr(self, f"_{field}", None) for field in GLOBAL_DYNAMIC_DELETE_FIELDS})
         return config
+
+    def _serialize_task_document(self, task_id: str) -> dict:
+        """把运行期允许变化的状态同步回9.0任务文档。"""
+        task = self._task_configs[task_id]
+        document = self._task_documents[task_id].model_copy(deep=True)
+        document.identity.enabled = task.enabled
+        document.deletion.paused = task.smart_delete_paused
+        document.deletion.observation_started_at = task.smart_shadow_started_at
+        document.deletion.observation_until = task.smart_shadow_until
+        document.deletion.observation_extensions = task.smart_shadow_extensions
+        self._task_documents[task_id] = document
+        return document.model_dump(mode="json")
 
     def _save_config(self) -> None:
         """保存全局设置和全部任务配置"""
@@ -1172,13 +955,6 @@ class BrushFlow(_PluginBase):
             Scheduler().update_plugin_job(self.__class__.__name__)
         except Exception as err:
             logger.error(f"更新站点刷流调度失败：{str(err)}")
-
-    def _global_dynamic_delete_enabled(self) -> bool:
-        """返回全局动态删种开关与阈值是否同时有效"""
-        return bool(
-            getattr(self, "_global_proxy_delete", False)
-            and getattr(self, "_global_delete_size_range", None)
-        )
 
     @staticmethod
     def _normalize_site_ids(value: Any) -> List[int]:
@@ -1320,111 +1096,6 @@ class BrushFlow(_PluginBase):
         finally:
             signin_lock.release()
 
-    @staticmethod
-    def _validate_global_dynamic_delete_config(
-        enabled: Any,
-        size_range: Any,
-        min_size: Any = None,
-        max_size: Any = None,
-    ) -> Tuple[bool, Optional[float], Optional[float], Optional[str]]:
-        """复用设置模型校验持久化或迁移得到的全局动态删种配置。"""
-        try:
-            payload = BrushFlowSettingsPayload.model_validate(
-                {
-                    "global_proxy_delete": enabled,
-                    "global_delete_size_range": size_range,
-                    "global_delete_min_size": min_size,
-                    "global_delete_max_size": max_size,
-                }
-            )
-        except ValueError as err:
-            logger.warning(f"全局动态删种配置无效，已自动关闭：{str(err)}")
-            return False, None, None, None
-        return (
-            payload.global_proxy_delete,
-            payload.global_delete_min_size,
-            payload.global_delete_max_size,
-            payload.global_delete_size_range,
-        )
-
-    @staticmethod
-    def _promotion_expiry_at(freedate_origin: Any, timezone_offset: float) -> Optional[datetime]:
-        """把站点促销截止时间换算为宿主时区中的实际到期时刻"""
-        if not freedate_origin:
-            return None
-        try:
-            freedate_text = str(freedate_origin).strip().replace("T", " ").removesuffix("Z")
-            site_expiry = datetime.strptime(freedate_text, "%Y-%m-%d %H:%M:%S")
-            local_expiry = site_expiry + timedelta(hours=timezone_offset)
-            return local_expiry.replace(tzinfo=ZoneInfo(settings.TZ))
-        except (TypeError, ValueError) as err:
-            logger.warning(f"解析促销截止时间失败：{str(err)}")
-            return None
-
-    def _next_promotion_expiry(self, task: BrushTaskConfig) -> Optional[datetime]:
-        """返回任务中下一项未完成下载的促销截止时间"""
-        if not task.del_no_free:
-            return None
-        now = datetime.now(ZoneInfo(settings.TZ))
-        expiries: List[datetime] = []
-        torrent_tasks = self._get_task_data(task.id, "torrents") or {}
-        for torrent_task in torrent_tasks.values():
-            if not isinstance(torrent_task, dict) or torrent_task.get("deleted"):
-                continue
-            try:
-                total_size = float(torrent_task.get("size") or 0)
-                downloaded = float(torrent_task.get("downloaded") or 0)
-            except (TypeError, ValueError):
-                total_size = downloaded = 0
-            if total_size > 0 and downloaded >= total_size:
-                continue
-            expiry = self._promotion_expiry_at(torrent_task.get("freedate"), task.timezone_offset)
-            if expiry and expiry > now:
-                expiries.append(expiry)
-        return min(expiries) if expiries else None
-
-    def _check_promotion_expiry(self, task_id: str) -> None:
-        """在最近促销截止时等待当前操作结束，检查后重排下一截止任务"""
-        try:
-            self.check(task_id, wait_for_lock=True)
-        finally:
-            self._refresh_scheduler()
-
-    def _validate_task_reference(self, task: BrushTaskConfig, notify: bool = True) -> bool:
-        """校验任务引用的私有站点和下载器是否仍然存在"""
-        site = SiteOper().get(task.site_id)
-        downloader_configs = DownloaderHelper().get_configs()
-        valid = bool(
-            site
-            and not getattr(site, "public", False)
-            and task.downloader
-            and task.downloader in downloader_configs
-        )
-        if notify and not valid:
-            self._log_and_notify_error(f"刷流任务 [{task.name}] 引用的站点或下载器不存在")
-        return valid
-
-    @staticmethod
-    def _torrent_has_tag(torrent: Any, tag: str) -> bool:
-        """判断 qBittorrent 种子是否仍绑定指定标签"""
-        if not isinstance(torrent, dict):
-            return False
-        tags = {
-            item.strip()
-            for item in str(torrent.get("tags") or "").split(",")
-            if item.strip()
-        }
-        return tag in tags
-
-    @staticmethod
-    def _delete_qbittorrent_tags(service: Any, tags: Union[str, List[str]]) -> bool:
-        """删除 qBittorrent 全局标签定义，不调用需要种子 Hash 的 removeTags。"""
-        client = getattr(getattr(service, "instance", None), "qbc", None)
-        if not client or not tags:
-            return False
-        client.torrents_delete_tags(tags=tags)
-        return True
-
     def _cleanup_unused_task_tag(
         self,
         task: BrushTaskConfig,
@@ -1494,7 +1165,8 @@ class BrushFlow(_PluginBase):
             site = SiteOper().get(site_id)
             if not site or getattr(site, "public", False):
                 continue
-            task_data = {field: config.get(field) for field in TASK_CONFIG_FIELDS if field in config}
+            migration_fields = set(TASK_CONFIG_FIELDS).union(LEGACY_SITE_OVERRIDE_FIELDS)
+            task_data = {field: config.get(field) for field in migration_fields if field in config}
             site_override = overrides.get(site.name, {})
             task_data.update(site_override)
             # 旧版会把全局时区小时数转换成分钟后再次持久化，站点覆盖 JSON 则始终保留小时数。
@@ -1511,18 +1183,8 @@ class BrushFlow(_PluginBase):
                     "check_interval": 5,
                 }
             )
-            tasks.append(BrushTaskConfig(task_data).to_dict())
+            tasks.append(task_data)
         return tasks
-
-    def _migrate_v8_task_rows(self, rows: List[dict]) -> Tuple[List[dict], bool]:
-        """幂等迁移 7.x 任务，并保存逐任务升级前配置。"""
-        backups = self.get_data("v8_task_config_backups") or {}
-        if not isinstance(backups, dict):
-            backups = {}
-        normalized, backups, migrated = migrate_task_rows_v8(rows, backups)
-        if migrated:
-            self.save_data("v8_task_config_backups", backups)
-        return normalized, migrated
 
     @staticmethod
     def _parse_legacy_site_overrides(config: dict) -> Dict[str, dict]:
@@ -1611,47 +1273,23 @@ class BrushFlow(_PluginBase):
             else:
                 self._task_context.task_id = previous
 
-    @contextmanager
-    def _all_task_locks_scope(self) -> Iterator[None]:
-        """按任务 ID 顺序锁定全部任务，保护跨任务删种的数据一致性"""
-        acquired_locks: List[threading.Lock] = []
-        try:
-            for task_id in sorted(self._task_configs):
-                task_lock = self._task_locks.setdefault(task_id, threading.Lock())
-                task_lock.acquire()
-                acquired_locks.append(task_lock)
-            yield
-        finally:
-            for task_lock in reversed(acquired_locks):
-                task_lock.release()
-
     def _get_task_config(self, task_id: Optional[str] = None) -> Optional[BrushTaskConfig]:
         """获取显式任务或当前线程绑定的任务配置"""
         resolved_id = task_id or getattr(self._task_context, "task_id", None)
         return self._task_configs.get(resolved_id) if resolved_id else None
 
-    def __get_brush_config(self, sitename: str = None) -> Optional[BrushTaskConfig]:
-        """兼容核心逻辑获取当前任务配置"""
-        task = self._get_task_config()
-        if task or not sitename:
-            return task
-        return next(
-            (item for item in self._task_configs.values() if self._get_site_name(item.site_id) == sitename),
-            None,
-        )
-
     @staticmethod
     def _task_data_key(task_id: str, data_name: str) -> str:
         """生成任务独立的插件数据键"""
-        return f"task.{task_id}.{data_name}"
+        return TaskRepository.task_key(task_id, data_name)
 
     def _get_task_data(self, task_id: str, data_name: str) -> Any:
         """读取指定任务的独立持久化数据"""
-        return self.get_data(self._task_data_key(task_id, data_name))
+        return self._repository.get(task_id, data_name)
 
     def _save_task_data(self, task_id: str, data_name: str, value: Any) -> None:
         """保存指定任务的独立持久化数据"""
-        self.save_data(self._task_data_key(task_id, data_name), value)
+        self._repository.save(task_id, data_name, value)
 
     def _current_task_data(self, data_name: str, default: Any = None) -> Any:
         """读取当前线程任务的数据并提供缺省值"""
@@ -1715,13 +1353,11 @@ class BrushFlow(_PluginBase):
 
     def _append_run(self, task_id: str, report: dict) -> None:
         """保存最近的刷流或检查诊断记录"""
-        history = self._get_task_data(task_id, "runs") or []
         stored_report = {
             **report,
             "reason_counts": dict(report.get("reason_counts") or {}),
         }
-        history.insert(0, stored_report)
-        self._save_task_data(task_id, "runs", history[: self.MAX_RUN_HISTORY])
+        self._repository.prepend_bounded(task_id, "runs", stored_report, self.MAX_RUN_HISTORY)
 
     def _build_status_data(self) -> Dict[str, Any]:
         """组装工作台总览、任务摘要和可选站点下载器"""
@@ -1759,7 +1395,6 @@ class BrushFlow(_PluginBase):
             "show_sidebar_nav": self._show_sidebar_nav,
             "signin": self._build_signin_status(),
             **{field: getattr(self, f"_{field}", None) for field in GLOBAL_LIMIT_FIELDS},
-            **{field: getattr(self, f"_{field}", None) for field in GLOBAL_DYNAMIC_DELETE_FIELDS},
             "summary": aggregate,
             "tasks": task_rows,
             "options": {"sites": site_options, "downloaders": downloader_options},
@@ -1903,15 +1538,24 @@ class BrushFlow(_PluginBase):
             return True, "目标已达成，按普通均衡门槛继续运行", status
         return True, None, status
 
-    def _build_task_detail(
+    def _build_task_overview(self, task_id: str) -> Dict[str, Any]:
+        """组装任务状态页所需的轻量数据，不夹带种子和运行记录。"""
+        task = self._task_configs[task_id]
+        return {
+            "task": self._serialize_task_document(task_id),
+            "runtime_config": task.to_dict(),
+            "summary": self._task_summary(task_id),
+            "strategy": self._build_strategy_status(task_id),
+        }
+
+    def _paginate_task_torrents(
         self,
         task_id: str,
         state: str = "active",
         page: int = 1,
         page_size: int = 50,
     ) -> Dict[str, Any]:
-        """组装任务编辑、概览、诊断与分页种子数据"""
-        task = self._task_configs[task_id]
+        """按任务和状态分页读取托管种子。"""
         torrents = self._get_task_data(task_id, "torrents") or {}
         archived = self._get_task_data(task_id, "archived") or {}
         rows = list(torrents.values())
@@ -1926,22 +1570,17 @@ class BrushFlow(_PluginBase):
         start = (page - 1) * page_size
         selected_rows = rows[start : start + page_size]
         return {
-            "task": task.to_dict(),
-            "summary": self._task_summary(task_id),
-            "strategy": self._build_strategy_status(task_id),
-            "runs": (self._get_task_data(task_id, "runs") or [])[:20],
-            "torrents": {
-                "items": selected_rows,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "state": state,
-            },
+            "items": selected_rows,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "state": state,
         }
 
     def _build_strategy_status(self, task_id: str) -> Dict[str, Any]:
         """组装策略概览、学习置信度和最近选删种解释。"""
         task = self._task_configs[task_id]
+        document = self._task_documents.get(task_id)
         now = time.time()
         state = dict(self._get_task_data(task_id, "strategy_state") or {})
         learning_state = self._get_task_data(task_id, "learning_state") or {}
@@ -1986,11 +1625,7 @@ class BrushFlow(_PluginBase):
         capacity = float(task.disksize or 0) * 1024**3
         capacity_target = capacity * task.smart_capacity_target_percent / 100 if capacity else None
         capacity_ratio = current_size / capacity if capacity else 0.0
-        recovery_active = bool(
-            task.smart_recovery_enabled
-            and capacity
-            and capacity_ratio >= float(task.smart_recovery_trigger_percent or 125) / 100
-        )
+        recovery_active = bool(capacity and capacity_ratio > 1.0)
         torrent_sizes = {
             str(torrent_hash): float(
                 torrent.get("size") or torrent.get("total_size") or 0
@@ -2000,6 +1635,8 @@ class BrushFlow(_PluginBase):
         }
         blocker_counts: Dict[str, int] = {}
         blocker_bytes: Dict[str, float] = {}
+        protected_hashes: set[str] = set()
+        protected_bytes_by_hash: Dict[str, float] = {}
         eligible_count = 0
         eligible_bytes = 0.0
         for row in (latest_deletion or {}).get("evaluated", []):
@@ -2009,6 +1646,9 @@ class BrushFlow(_PluginBase):
                 eligible_count += 1
                 eligible_bytes += torrent_size
                 continue
+            if torrent_hash:
+                protected_hashes.add(torrent_hash)
+                protected_bytes_by_hash[torrent_hash] = torrent_size
             for code in row.get("reasons") or []:
                 blocker_counts[code] = blocker_counts.get(code, 0) + 1
                 blocker_bytes[code] = blocker_bytes.get(code, 0.0) + torrent_size
@@ -2042,7 +1682,7 @@ class BrushFlow(_PluginBase):
         if not task.smart_enabled:
             readiness = {
                 "state": "disabled",
-                "message": "智能删种未启用，当前仅保留原有删种规则。",
+                "message": "自动删种未启用，当前只做选种、下载健康检查和统计。",
             }
         elif not capacity:
             readiness = {
@@ -2093,9 +1733,83 @@ class BrushFlow(_PluginBase):
                 "state": "blocked",
                 "message": f"暂时没有可安全删除的种子，主要受“{main_blocker}”保护。",
             }
+        protected_count = len(protected_hashes)
+        protected_bytes = sum(protected_bytes_by_hash.values())
+        runs = self._get_task_data(task_id, "runs") or []
+        latest_brush = next((row for row in runs if row.get("kind") == "brush"), {})
+        selection_summary = {
+            "candidate_count": int(latest_brush.get("source_count") or 0),
+            "added_count": int(latest_brush.get("added_count") or 0),
+            "filtered_count": int(latest_brush.get("filtered_count") or 0),
+            "main_reason": next(
+                iter(
+                    sorted(
+                        (latest_brush.get("reason_counts") or {}).items(),
+                        key=lambda item: (-int(item[1] or 0), str(item[0])),
+                    )
+                ),
+                (None, 0),
+            )[0],
+        }
+        capacity_percent = round(capacity_ratio * 100, 1) if capacity else None
+        presentation = build_health_summary(
+            runtime_error=self._runtime.get(task_id, {}).get("last_error"),
+            configuration_issue=bool(
+                document
+                and not document.deletion.enabled
+                and document.deletion.paused
+                and (
+                    document.capacity.limit_gb is None
+                    or document.deletion.min_seed_hours is None
+                )
+            ),
+            severe_capacity=bool(
+                capacity
+                and capacity_ratio > 1.0
+            ),
+            capacity_percent=capacity_percent,
+            download=download_health,
+            mode=mode,
+            shadow_remaining_seconds=shadow_remaining,
+            capacity_pressure=bool(capacity and current_size > (capacity_target or current_size)),
+            readiness_message=str(readiness.get("message") or "容量高于目标，等待安全候选。"),
+            task_enabled=task.enabled,
+        )
+        health = presentation["health"]
+        recommended_actions = presentation["recommended_actions"]
+        download_issue_count = presentation["download_issue_count"]
+        ui_summary = {
+            "health": health,
+            "capacity": {
+                "current_bytes": current_size,
+                "limit_bytes": capacity,
+                "percent": capacity_percent,
+                "trigger_bytes": capacity * task.smart_capacity_trigger_percent / 100 if capacity else None,
+                "target_bytes": capacity_target,
+                "recovery_active": recovery_active,
+            },
+            "selection": selection_summary,
+            "deletion": {
+                "state": readiness.get("state"),
+                "candidate_count": int(readiness.get("candidate_count") or planned_count or eligible_count),
+                "candidate_bytes": float(readiness.get("candidate_bytes") or planned_bytes or eligible_bytes),
+                "protected_count": protected_count,
+                "protected_bytes": protected_bytes,
+                "message": readiness.get("message"),
+            },
+            "download": {
+                "state": "attention" if download_issue_count else "healthy",
+                "stalled_count": int(download_health.get("stalled_count") or 0),
+                "slow_count": int(download_health.get("slow_count") or 0),
+                "queued_count": int(download_health.get("queued_count") or 0),
+                "error_count": int(download_health.get("error_count") or 0),
+                "paused_count": int(download_health.get("paused_count") or 0),
+            },
+            "recommended_actions": recommended_actions,
+        }
         state.update(
             {
-                "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else __version__,
+                "engine_version": __version__,
                 "profile": task.smart_profile,
                 "mode": mode,
                 "mode_label": mode_label,
@@ -2115,11 +1829,7 @@ class BrushFlow(_PluginBase):
                 "capacity_ratio": round(capacity_ratio, 4),
                 "capacity_trigger_percent": task.smart_capacity_trigger_percent,
                 "capacity_target_percent": task.smart_capacity_target_percent,
-                "recovery_enabled": task.smart_recovery_enabled,
                 "recovery_active": recovery_active,
-                "recovery_trigger_percent": task.smart_recovery_trigger_percent,
-                "recovery_run_capacity_percent": task.smart_recovery_max_delete_capacity_percent_run,
-                "recovery_day_capacity_percent": task.smart_recovery_max_delete_capacity_percent_day,
                 "estimated_freed_bytes": (latest_deletion or {}).get("estimated_freed_bytes", 0),
                 "deletion_readiness": readiness,
                 "eligible_candidate_count": eligible_count,
@@ -2134,6 +1844,7 @@ class BrushFlow(_PluginBase):
                 "deletion_reason_codes": deletion_reason_codes,
                 "pending_candidates": candidate_rows[:50],
                 "audit_count": len(audit),
+                "ui_summary": ui_summary,
             }
         )
         return state
@@ -2672,17 +2383,6 @@ class BrushFlow(_PluginBase):
             logger.error(f"刷流任务 [{task.name}] 检查失败：{str(err)}")
         finally:
             task_lock.release()
-        if self._global_dynamic_delete_enabled() and not any(
-            item.smart_enabled for item in self._task_configs.values()
-        ):
-            try:
-                global_deleted_count = self._run_global_dynamic_delete()
-                report["global_deleted_count"] = global_deleted_count
-                report["deleted_count"] = report.get("deleted_count", 0) + global_deleted_count
-            except Exception as err:
-                report.update({"success": False, "error": str(err)})
-                self._set_runtime(task.id, last_error=str(err))
-                logger.error(f"全局动态删种失败：{str(err)}")
         report["finished_at"] = self._now_iso()
         self._append_run(task.id, report)
         self._set_runtime(task.id, state="idle", operation=None)
@@ -2869,12 +2569,9 @@ class BrushFlow(_PluginBase):
             report["smart_execute_count"] = len(regular_delete_hashes)
             report["smart_plan_reasons"] = list(smart_plan.values())
             smart_shadow_only = self._build_strategy_status(task.id).get("mode") in {"shadow", "paused"}
-        elif self._global_dynamic_delete_enabled():
-            regular_delete_hashes = []
-        elif task.proxy_delete and task.delete_size_range:
-            regular_delete_hashes = self.__delete_torrent_for_proxy(filtered_torrents, torrent_tasks)
         else:
-            regular_delete_hashes = self.__delete_torrent_for_evaluate_conditions(filtered_torrents, torrent_tasks)
+            # 9.0 只保留统一收益引擎；关闭自动删种时不会退回旧条件或动态路径。
+            regular_delete_hashes = []
         invalid_delete_hashes = list(dict.fromkeys(invalid_delete_hashes or []))
         regular_delete_hashes = [
             torrent_hash
@@ -2890,35 +2587,34 @@ class BrushFlow(_PluginBase):
                 logger.info(
                     f"[影子观察] 任务 [{task.name}] 本轮记录 {len(invalid_delete_hashes)} 个无效做种计划，未调用下载器"
                 )
-            elif task.delete_dry_run and not task.smart_enabled:
-                for torrent_hash in invalid_delete_hashes:
-                    logger.info(
-                        f"[模拟删种] 无效做种计划仅移除 qB 任务："
-                        f"{invalid_seed_plan.get(torrent_hash, torrent_hash)}"
-                    )
-            elif downloader.delete_torrents(ids=invalid_delete_hashes, delete_file=False):
-                deleted_from_downloader = True
-                actual_invalid_hashes = invalid_delete_hashes
-                for torrent_hash in actual_invalid_hashes:
-                    if torrent_hash in torrent_tasks:
-                        torrent_tasks[torrent_hash]["deleted"] = True
-                        torrent_tasks[torrent_hash]["deleted_time"] = time.time()
-                    torrent_task = torrent_tasks.get(torrent_hash)
-                    if torrent_task:
-                        self.__send_delete_message(
-                            torrent_task,
-                            invalid_seed_plan.get(torrent_hash, "Tracker 明确拒绝，清理无效做种"),
-                        )
-                self._save_current_task_data("invalid_seed_plan", {})
             else:
-                logger.warning(f"刷流任务 [{task.name}] 清理无效做种失败，本轮保留任务")
-        # 智能模式是明确的实际执行模式，不沿用旧版的“模拟运行”开关；旧任务
-        # 仍按 6.2 的 delete_dry_run 行为运行，避免升级后改变既有任务。
-        if regular_delete_hashes and task.delete_dry_run and not task.smart_enabled:
-            logger.info(
-                f"[模拟删种] 任务 [{task.name}] 本轮计划删除 {len(regular_delete_hashes)} 个普通种子，未执行实际删除"
-            )
-        elif regular_delete_hashes:
+                self._append_decision_audit(
+                    task.id,
+                    {
+                        "at": time.time(),
+                        "kind": "invalid_tracker_deletion",
+                        "hashes": list(invalid_delete_hashes),
+                        "delete_files": False,
+                        "reasons": dict(invalid_seed_plan),
+                    },
+                )
+                if downloader.delete_torrents(ids=invalid_delete_hashes, delete_file=False):
+                    deleted_from_downloader = True
+                    actual_invalid_hashes = invalid_delete_hashes
+                    for torrent_hash in actual_invalid_hashes:
+                        if torrent_hash in torrent_tasks:
+                            torrent_tasks[torrent_hash]["deleted"] = True
+                            torrent_tasks[torrent_hash]["deleted_time"] = time.time()
+                        torrent_task = torrent_tasks.get(torrent_hash)
+                        if torrent_task:
+                            self.__send_delete_message(
+                                torrent_task,
+                                invalid_seed_plan.get(torrent_hash, "Tracker 明确拒绝，清理无效做种"),
+                            )
+                    self._save_current_task_data("invalid_seed_plan", {})
+                else:
+                    logger.warning(f"刷流任务 [{task.name}] 清理无效做种失败，本轮保留任务")
+        if regular_delete_hashes:
             if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
                 self.__qb_torrents_reannounce(regular_delete_hashes)
             if downloader.delete_torrents(ids=regular_delete_hashes, delete_file=task.delete_files):
@@ -2974,7 +2670,7 @@ class BrushFlow(_PluginBase):
                 "result": "completed",
                 "deleted_count": len(need_delete_hashes),
                 "planned_delete_count": planned_delete_count,
-                "dry_run": task.delete_dry_run,
+                "dry_run": False,
                 "active_count": sum(1 for item in torrent_tasks.values() if not item.get("deleted")),
             }
         )
@@ -2982,11 +2678,22 @@ class BrushFlow(_PluginBase):
     def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> None:
         """更新当前任务种子的上下传、分享率、做种时间和下载健康"""
         task = self._get_task_config()
-        health_policy = policy_for_profile(task.smart_profile if task else "balanced")
+        document = self._task_documents.get(task.id) if task else None
+        if document:
+            health_policy = DownloadHealthPolicy(
+                stalled_confirmations=document.health.stalled_confirmations,
+                stalled_window_minutes=document.health.stalled_window_minutes,
+                slow_after_hours=document.health.slow_after_hours,
+                slow_speed_kbps=document.health.slow_speed_kbps,
+            )
+        else:
+            health_policy = policy_for_profile(task.smart_profile if task else "balanced")
         health_store = self._current_task_data("download_health", {})
         if not isinstance(health_store, dict):
             health_store = {}
         now = time.time()
+        repair_hashes: List[str] = []
+        pause_hashes: List[str] = []
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
             torrent_task = torrent_tasks.get(torrent_hash)
@@ -3027,6 +2734,32 @@ class BrushFlow(_PluginBase):
                 if previous_state == health.get("state")
                 else now
             )
+            transition = next_health_action(
+                health.get("state", HEALTH_UNKNOWN),
+                health.get("progress_delta", 0),
+                repair_at=health_record.get("repair_at"),
+                paused_at=health_record.get("paused_at"),
+                now=now,
+                policy=health_policy,
+            )
+            if transition["action"] == "repair" and document and not document.health.auto_repair:
+                transition = {
+                    "action": None,
+                    "repair_at": health_record.get("repair_at"),
+                    "paused_at": health_record.get("paused_at"),
+                }
+            if transition["action"] == "pause" and document and not document.health.pause_after_failed_repair:
+                transition = {
+                    "action": None,
+                    "repair_at": health_record.get("repair_at"),
+                    "paused_at": health_record.get("paused_at"),
+                }
+            repair_at = transition["repair_at"]
+            paused_at = transition["paused_at"]
+            if document and document.health.auto_repair and transition["action"] == "repair":
+                repair_hashes.append(torrent_hash)
+            if document and document.health.pause_after_failed_repair and transition["action"] == "pause":
+                pause_hashes.append(torrent_hash)
             health_store[torrent_hash] = {
                 "hash": torrent_hash,
                 "state": health.get("state", HEALTH_UNKNOWN),
@@ -3034,6 +2767,8 @@ class BrushFlow(_PluginBase):
                 "state_since": state_since,
                 "updated_at": now,
                 "samples": samples,
+                "repair_at": repair_at,
+                "paused_at": paused_at,
             }
             torrent_task.update(
                 {
@@ -3053,6 +2788,37 @@ class BrushFlow(_PluginBase):
                 }
             )
         self._save_current_task_data("download_health", health_store)
+        self.__apply_download_health_actions(repair_hashes, pause_hashes)
+
+    def __apply_download_health_actions(self, repair_hashes: List[str], pause_hashes: List[str]) -> None:
+        """对异常未完成任务修复一次，持续失败后暂停；绝不删除数据。"""
+        downloader = self.downloader
+        qbc = getattr(downloader, "qbc", None) if downloader else None
+        if not qbc:
+            return
+        if repair_hashes:
+            hashes = "|".join(repair_hashes)
+            try:
+                qbc.torrents_reannounce(torrent_hashes=hashes)
+                starter = getattr(qbc, "torrents_start", None) or getattr(qbc, "torrents_resume", None)
+                if starter:
+                    starter(torrent_hashes=hashes)
+                logger.info(f"下载健康自动修复：已重新汇报并恢复 {len(repair_hashes)} 个未完成任务")
+            except Exception as err:
+                logger.warning(f"下载健康自动修复失败：{str(err)}")
+        if pause_hashes:
+            hashes = "|".join(pause_hashes)
+            try:
+                stopper = getattr(qbc, "torrents_stop", None) or getattr(qbc, "torrents_pause", None)
+                if stopper:
+                    stopper(torrent_hashes=hashes)
+                logger.warning(f"下载健康：{len(pause_hashes)} 个任务修复后仍无进展，已暂停并保留数据")
+                self.__send_message(
+                    "【刷流任务下载异常】",
+                    f"{len(pause_hashes)} 个未完成任务自动修复后仍无进展，已暂停；下载数据完整保留。",
+                )
+            except Exception as err:
+                logger.warning(f"暂停异常下载失败：{str(err)}")
 
     @staticmethod
     def _build_download_health_summary(torrent_tasks: Dict[str, dict]) -> Dict[str, Any]:
@@ -3091,6 +2857,7 @@ class BrushFlow(_PluginBase):
             "queued_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_QUEUED),
             "checking_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_CHECKING),
             "error_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_ERROR),
+            "paused_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_PAUSED),
             "observed_count": sum(
                 1
                 for _, row in active_rows
@@ -3179,135 +2946,6 @@ class BrushFlow(_PluginBase):
         site_tasks = [item for item in self._task_configs.values() if item.site_id == site_id]
         return bool(site_tasks and site_tasks[0].id == task.id)
 
-    def __evaluate_conditions_for_delete(
-        self,
-        torrent_info: dict,
-        torrent_task: dict,
-    ) -> Tuple[bool, str]:
-        """评估普通与 H&R 种子的原有删除条件"""
-        task = self._get_task_config()
-        if not task:
-            return False, "任务配置不存在"
-        total_size = float(torrent_info.get("total_size") or 0)
-        completed = total_size > 0 and float(torrent_info.get("downloaded") or 0) >= total_size
-        if completed:
-            safety_allowed, safety_reason = self._delete_safety_allowed(task, torrent_info)
-            if not safety_allowed:
-                return False, safety_reason
-        hit_and_run = bool(torrent_task.get("hit_and_run"))
-        if hit_and_run and (task.hr_seed_time or task.seed_ratio):
-            checks = []
-            if task.hr_seed_time:
-                checks.append((
-                    torrent_info.get("seeding_time", 0) >= float(task.hr_seed_time) * 3600,
-                    f"H&R 做种时间达到 {task.hr_seed_time} 小时",
-                ))
-            if task.seed_ratio:
-                checks.append((
-                    torrent_info.get("ratio", 0) >= float(task.seed_ratio),
-                    f"H&R 分享率达到 {task.seed_ratio}",
-                ))
-            return self._combine_delete_checks(checks, task.delete_condition_mode, "H&R")
-        promotion_expired, promotion_reason = self.__promotion_expired(torrent_info, torrent_task)
-        if promotion_expired:
-            return True, promotion_reason
-        checks = []
-        if task.seed_time:
-            checks.append((
-                torrent_info.get("seeding_time", 0) >= float(task.seed_time) * 3600,
-                f"做种时间达到 {task.seed_time} 小时",
-            ))
-        if task.seed_ratio:
-            checks.append((
-                torrent_info.get("ratio", 0) >= float(task.seed_ratio),
-                f"分享率达到 {task.seed_ratio}",
-            ))
-        if task.seed_size:
-            checks.append((
-                torrent_info.get("uploaded", 0) >= float(task.seed_size) * 1024 ** 3,
-                f"上传量达到 {task.seed_size} GB",
-            ))
-        if (
-            task.download_time
-            and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
-            and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
-        ):
-            return True, f"下载耗时达到 {task.download_time} 小时"
-        if task.seed_avgspeed:
-            checks.append((
-                torrent_info.get("avg_upspeed", 0) <= float(task.seed_avgspeed) * 1024
-                and torrent_info.get("seeding_time", 0) >= 30 * 60,
-                f"平均上传速度低于 {task.seed_avgspeed} KB/s",
-            ))
-        if task.seed_inactivetime:
-            checks.append((
-                torrent_info.get("iatime", 0) >= float(task.seed_inactivetime) * 60,
-                f"未活动时间达到 {task.seed_inactivetime} 分钟",
-            ))
-        return self._combine_delete_checks(checks, task.delete_condition_mode)
-
-    @staticmethod
-    def _combine_delete_checks(
-        checks: List[Tuple[bool, str]],
-        mode: str,
-        prefix: str = "",
-    ) -> Tuple[bool, str]:
-        """按任一/全部模式组合已配置的完成种子删除条件。"""
-        if not checks:
-            return False, f"{prefix + ' ' if prefix else ''}未配置删除条件"
-        matched = [reason for passed, reason in checks if passed]
-        if mode == "all":
-            if len(matched) == len(checks):
-                return True, " 且 ".join(matched)
-            return False, f"{prefix + ' ' if prefix else ''}尚未满足全部删除条件"
-        if matched:
-            return True, matched[0]
-        return False, f"{prefix + ' ' if prefix else ''}尚未满足任一删除条件"
-
-    @staticmethod
-    def _delete_safety_allowed(
-        task: BrushTaskConfig,
-        torrent_info: dict,
-    ) -> Tuple[bool, str]:
-        """应用所有完成种子删除模式共享的硬安全线。"""
-        if task.min_seed_time and torrent_info.get("seeding_time", 0) < float(task.min_seed_time) * 3600:
-            return False, f"未达到最少保种时长 {task.min_seed_time} 小时"
-        if task.min_inactivetime and torrent_info.get("iatime", 0) < float(task.min_inactivetime) * 60:
-            return False, f"未达到最少未活动时间 {task.min_inactivetime} 分钟"
-        return True, "已通过删种安全线"
-
-    @staticmethod
-    def _dynamic_sort_key(torrent_info: dict, mode: str) -> tuple:
-        """生成动态删种优先级，返回值越大越优先清理。"""
-        seed_time = float(torrent_info.get("seeding_time") or 0)
-        inactive = float(torrent_info.get("iatime") or 0)
-        avg_speed = float(torrent_info.get("avg_upspeed") or 0)
-        size = float(torrent_info.get("total_size") or 0)
-        if mode == "oldest":
-            return seed_time, inactive, -avg_speed, size
-        if mode == "inactive":
-            return inactive, seed_time, -avg_speed, size
-        if mode == "low_speed":
-            return -avg_speed, inactive, seed_time, size
-        if mode == "largest":
-            return size, inactive, -avg_speed, seed_time
-        return inactive, -avg_speed, seed_time, size
-
-    def __promotion_expired(self, torrent_info: dict, torrent_task: dict) -> Tuple[bool, str]:
-        """判断免费促销是否结束且种子仍未完成下载"""
-        task = self._get_task_config()
-        if (
-            not task
-            or not task.del_no_free
-            or torrent_info.get("downloaded", 0) >= torrent_info.get("total_size", 0)
-        ):
-            return False, ""
-        expiry = self._promotion_expiry_at(torrent_task.get("freedate"), task.timezone_offset)
-        if not expiry:
-            return False, ""
-        expired = datetime.now(expiry.tzinfo) >= expiry
-        return expired, "促销已过期" if expired else ""
-
     @staticmethod
     def _smart_reason_label(code: str) -> str:
         """把单个引擎原因码翻译成通知、日志和界面可读的文本。"""
@@ -3322,15 +2960,10 @@ class BrushFlow(_PluginBase):
             "active_connection": "下载器仍有有效活动连接",
             "smart_cold_cooldown": "尚未达到智能冷种保护时间",
             "min_inactive_time": "尚未达到最低未活动时间",
-            "min_ratio": "尚未达到最低分享率",
-            "min_uploaded": "尚未达到最低上传量",
             "excluded_tag": "命中删除排除标签",
-            "required_condition": "尚未满足附加删除条件",
             "low_retention_value": "长期低需求、低上传或资源不稀缺",
             "low_value_unconfirmed": "低价值信号尚未连续确认",
             "valuable_seed": "存在上传需求或资源稀缺，继续保留",
-            "capacity_recovery": "容量严重超额，已启用恢复模式",
-            "recovery_oversize_single": "恢复期单个大种子容量放行",
             "no_low_value_candidate": "没有通过安全线和连续确认的低价值候选",
             "byte_cap": "删除容量配额已用尽",
             "daily_count_cap": "每日删除数量配额已用尽",
@@ -3354,16 +2987,14 @@ class BrushFlow(_PluginBase):
         return SmartPolicy(
             profile=task.smart_profile,
             min_seed_time_hours=float(task.min_seed_time or 0),
-            min_inactive_minutes=float(task.min_inactivetime or 0),
+            min_inactive_minutes=0.0,
             smart_cold_inactive_minutes=float(task.smart_cold_inactive_minutes or 0),
             protect_active_demand=bool(task.smart_protect_active_demand),
             demand_confirmations=int(task.smart_demand_confirmations or 2),
             low_value_confirmations=int(task.smart_candidate_confirmations or 3),
             low_value_span_minutes=float(task.smart_candidate_confirmation_minutes or 0),
-            min_ratio=float(task.smart_min_ratio or 0),
-            min_uploaded_gb=float(task.smart_min_uploaded or 0),
             ratio_target=float(task.site_ratio_target or 2.0),
-            ratio_weight=(18.0 if task.smart_engine == "legacy_7_3" else min(float(task.smart_ratio_weight or 5), 5)),
+            ratio_weight=min(float(task.smart_ratio_weight or 5), 5),
             score_threshold=float(task.smart_score_threshold or 40),
             score_margin=float(task.smart_score_margin or 0),
             capacity_trigger_percent=float(task.smart_capacity_trigger_percent or 90),
@@ -3374,19 +3005,7 @@ class BrushFlow(_PluginBase):
             max_delete_capacity_percent_day=float(task.smart_max_delete_capacity_percent_day or 0),
             max_delete_gb_per_run=float(task.smart_max_delete_gb_per_run or 0),
             max_delete_gb_per_day=float(task.smart_max_delete_gb_per_day or 0),
-            capacity_recovery_enabled=bool(task.smart_recovery_enabled),
-            capacity_recovery_trigger_percent=float(task.smart_recovery_trigger_percent or 125),
-            recovery_max_delete_percent_day=float(task.smart_recovery_max_delete_percent_day or 0),
-            recovery_max_delete_capacity_percent_run=float(
-                task.smart_recovery_max_delete_capacity_percent_run or 0
-            ),
-            recovery_max_delete_capacity_percent_day=float(
-                task.smart_recovery_max_delete_capacity_percent_day or 0
-            ),
-            allow_proactive_delete=bool(task.smart_allow_proactive_delete),
-            required_conditions=bool(task.smart_required_conditions),
             excluded_tags=excluded_tags,
-            engine_version="7.3" if task.smart_engine == "legacy_7_3" else "8.0",
         )
 
     def __record_smart_deletions(
@@ -3416,7 +3035,7 @@ class BrushFlow(_PluginBase):
         torrents: List[Any],
         torrent_tasks: Dict[str, dict],
     ) -> List[str]:
-        """生成 8.0 智能删种计划；影子期和暂停期只记录、不执行。"""
+        """生成 9.0 统一删种计划；影子期和暂停期只记录、不执行。"""
         task = self._get_task_config()
         if not task or not task.smart_enabled:
             return []
@@ -3431,7 +3050,6 @@ class BrushFlow(_PluginBase):
         ]
         observations: List[dict] = []
         learning_observations: List[dict] = []
-        legacy_conditions: Dict[str, bool] = {}
         history_before_current = list(history)
         for torrent in torrents:
             torrent_hash = self.__get_hash(torrent)
@@ -3457,9 +3075,6 @@ class BrushFlow(_PluginBase):
                 "feature_key": feature_key(torrent_task, joined_at=torrent_task.get("time")),
             }
             learning_observations.append(learning_row)
-            if task.smart_required_conditions:
-                matched, _ = self.__evaluate_conditions_for_delete(info, torrent_task)
-                legacy_conditions[torrent_hash] = matched
         if not observations:
             return []
 
@@ -3523,8 +3138,8 @@ class BrushFlow(_PluginBase):
                 }
             )
 
-        min_size = float(task.delete_min_size) * 1024**3 if task.delete_min_size else None
-        max_size = float(task.delete_max_size) * 1024**3 if task.delete_max_size else None
+        min_size = None
+        max_size = None
         disk_limit = float(task.disksize) * 1024**3 if task.disksize else None
         deleted_rows = self._get_task_data(task.id, "smart_deletions") or []
         deleted_today = sum(
@@ -3548,7 +3163,6 @@ class BrushFlow(_PluginBase):
             history=history_before_current,
             deleted_today=deleted_today,
             deleted_today_bytes=deleted_today_bytes,
-            legacy_conditions=legacy_conditions,
         )
 
         evaluated_by_hash = {result.torrent_hash: result for result in selection.evaluated}
@@ -3659,7 +3273,7 @@ class BrushFlow(_PluginBase):
             return []
         for torrent_hash in delete_hashes:
             logger.info(
-                f"智能删种任务 [{task.name}] 已通过 8.0 守门，准备删除："
+                f"智能删种任务 [{task.name}] 已通过 9.0 守门，准备删除："
                 f"{torrent_tasks.get(torrent_hash, {}).get('title')}"
             )
         return delete_hashes
@@ -3803,7 +3417,7 @@ class BrushFlow(_PluginBase):
         else:
             mode, mode_label = "active", "自动删除已启用"
         state = {
-            "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else __version__,
+            "engine_version": __version__,
             "profile": task.smart_profile,
             "mode": mode,
             "mode_label": mode_label,
@@ -3822,7 +3436,6 @@ class BrushFlow(_PluginBase):
             "capacity_ratio": getattr(selection, "capacity_ratio", 0.0),
             "capacity_debt_bytes": getattr(selection, "capacity_debt_bytes", 0.0),
             "recovery_active": bool(getattr(selection, "recovery_active", False)),
-            "recovery_trigger_percent": task.smart_recovery_trigger_percent,
             "recovery_run_byte_cap": getattr(selection, "run_byte_cap", 0.0),
             "recovery_daily_byte_cap": getattr(selection, "daily_byte_cap", 0.0),
             "pending_delete_count": len(selection.selected),
@@ -3831,572 +3444,6 @@ class BrushFlow(_PluginBase):
         }
         self._save_task_data(task.id, "strategy_state", state)
         return state
-
-    def __delete_torrent_for_evaluate_conditions(
-        self,
-        torrents: List[Any],
-        torrent_tasks: Dict[str, dict],
-        dynamic: bool = False,
-    ) -> List[str]:
-        """找出满足用户删除条件的种子并发送对应通知"""
-        task = self._get_task_config()
-        delete_hashes: List[str] = []
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash)
-            if not torrent_task:
-                continue
-            torrent_info = self.__get_torrent_info(torrent)
-            should_delete, reason = self.__evaluate_conditions_for_delete(torrent_info, torrent_task)
-            if not should_delete:
-                continue
-            delete_hashes.append(torrent_hash)
-            if dynamic:
-                reason = f"触发动态删除阈值，{reason}"
-            if task and task.delete_dry_run:
-                logger.info(f"[模拟删种] 将删除：{torrent_task.get('title')}，原因：{reason}")
-            else:
-                self.__send_delete_message(torrent_task, reason)
-                logger.info(f"刷流任务删除种子：{torrent_task.get('title')}，原因：{reason}")
-        return delete_hashes
-
-    def __delete_torrent_for_evaluate_proxy_pre_conditions(
-        self,
-        torrents: List[Any],
-        torrent_tasks: Dict[str, dict],
-    ) -> List[str]:
-        """动态删种前优先清理促销过期或下载超时的非 H&R 种子"""
-        task = self._get_task_config()
-        delete_hashes: List[str] = []
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash)
-            if not task or not torrent_task or torrent_task.get("hit_and_run"):
-                continue
-            torrent_info = self.__get_torrent_info(torrent)
-            expired, reason = self.__promotion_expired(torrent_info, torrent_task)
-            timed_out = bool(
-                task.download_time
-                and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
-                and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
-            )
-            if not expired and not timed_out:
-                continue
-            if timed_out and not reason:
-                reason = f"下载耗时达到 {task.download_time} 小时"
-            delete_hashes.append(torrent_hash)
-            if task.delete_dry_run:
-                logger.info(f"[模拟删种] 将删除：{torrent_task.get('title')}，原因：{reason}")
-            else:
-                self.__send_delete_message(torrent_task, reason)
-        return delete_hashes
-
-    @staticmethod
-    def _select_global_dynamic_deletions(
-        candidates: List[dict],
-        total_size: float,
-        min_size: float,
-        max_size: float,
-    ) -> Tuple[List[dict], float, bool]:
-        """按 V4 优先级从跨任务候选中生成全局动态删种计划"""
-        selected: List[dict] = []
-        selected_keys: Set[Tuple[str, str]] = set()
-        remaining_size = total_size
-
-        def select(
-            candidate: dict,
-            reason: str,
-            reason_field: Optional[str] = None,
-            dynamic_reason: bool = False,
-        ) -> None:
-            """把未选候选加入计划并扣减预计做种体积"""
-            nonlocal remaining_size
-            candidate_key = (
-                candidate["downloader_name"],
-                candidate["torrent_hash"],
-            )
-            if candidate_key in selected_keys:
-                return
-            selected_keys.add(candidate_key)
-            task_delete_reasons: Dict[str, str] = {}
-            for task, _ in candidate.get(
-                "associated_records",
-                [(candidate["task"], candidate.get("torrent_task"))],
-            ):
-                task_reason = (
-                    candidate.get("task_condition_reasons", {}).get(task.id, {}).get(reason_field)
-                    if reason_field
-                    else None
-                ) or reason
-                if dynamic_reason:
-                    task_reason = f"触发全局动态删除阈值，{task_reason}"
-                task_delete_reasons[task.id] = task_reason
-            selected.append(
-                {
-                    **candidate,
-                    "delete_reason": reason,
-                    "task_delete_reasons": task_delete_reasons,
-                }
-            )
-            remaining_size = max(remaining_size - float(candidate.get("size") or 0), 0)
-
-        for candidate in candidates:
-            if candidate.get("pre_delete_reason"):
-                select(
-                    candidate,
-                    candidate["pre_delete_reason"],
-                    reason_field="pre_delete_reason",
-                )
-
-        threshold_triggered = remaining_size >= max_size
-        if not threshold_triggered:
-            return selected, remaining_size, False
-
-        for candidate in candidates:
-            if remaining_size <= min_size:
-                break
-            if not candidate.get("proxy_delete") and candidate.get("conditional_reason"):
-                select(
-                    candidate,
-                    candidate["conditional_reason"],
-                    reason_field="conditional_reason",
-                )
-
-        if remaining_size > min_size:
-            for candidate in candidates:
-                if remaining_size <= min_size:
-                    break
-                if candidate.get("proxy_delete") and candidate.get("conditional_reason"):
-                    select(
-                        candidate,
-                        f"触发全局动态删除阈值，{candidate['conditional_reason']}",
-                        reason_field="conditional_reason",
-                        dynamic_reason=True,
-                    )
-
-        fallback_candidates = sorted(
-            (
-                candidate
-                for candidate in candidates
-                if candidate.get("proxy_delete")
-                and candidate.get("completed")
-                and not candidate.get("hit_and_run")
-                and candidate.get("dynamic_allowed", True)
-            ),
-            key=lambda item: BrushFlow._dynamic_sort_key(
-                item,
-                item.get("dynamic_sort_mode", "smart"),
-            ),
-            reverse=True,
-        )
-        for candidate in fallback_candidates:
-            if remaining_size <= min_size:
-                break
-            select(candidate, "触发全局动态删除阈值，系统按做种时间清理")
-
-        return selected, remaining_size, True
-
-    def _collect_global_dynamic_delete_candidates(
-        self,
-    ) -> Tuple[List[dict], float, Dict[str, Dict[str, dict]], Dict[str, ServiceInfo]]:
-        """汇总启用任务的最新下载器状态、做种体积和全局删种候选"""
-        candidate_rows: Dict[Tuple[str, str], List[dict]] = {}
-        total_size = 0.0
-        task_records: Dict[str, Dict[str, dict]] = {}
-        services: Dict[str, ServiceInfo] = {}
-        downloader_cache: Dict[str, Tuple[ServiceInfo, List[Any]]] = {}
-        counted_torrents: Set[Tuple[str, str]] = set()
-        associated_records: Dict[Tuple[str, str], List[Tuple[BrushTaskConfig, dict]]] = {}
-        downloader_helper = DownloaderHelper()
-
-        for task in self._task_configs.values():
-            torrent_tasks: Dict[str, dict] = self._get_task_data(task.id, "torrents") or {}
-            task_records[task.id] = torrent_tasks
-            for torrent_hash, torrent_task in torrent_tasks.items():
-                if torrent_task.get("deleted"):
-                    continue
-                torrent_key = (task.downloader, torrent_hash)
-                associated_records.setdefault(torrent_key, []).append((task, torrent_task))
-
-        for task in self._task_configs.values():
-            if not task.enabled:
-                continue
-            torrent_tasks = task_records[task.id]
-            if task.downloader not in downloader_cache:
-                service = downloader_helper.get_service(name=task.downloader)
-                if not service or not service.instance or service.instance.is_inactive():
-                    raise RuntimeError(
-                        f"全局动态删种无法获取下载器 [{task.downloader}] 实时状态，本轮已中止"
-                    )
-                torrents, error = service.instance.get_torrents()
-                if error:
-                    raise RuntimeError(
-                        f"全局动态删种获取下载器 [{task.downloader}] 种子失败，本轮已中止"
-                    )
-                downloader_cache[task.downloader] = (service, torrents or [])
-                services[task.downloader] = service
-
-            service, downloader_torrents = downloader_cache[task.downloader]
-            with self._task_scope(task.id):
-                downloader_torrent_map: Dict[str, Any] = {}
-                for torrent in downloader_torrents:
-                    torrent_hash = self.__get_hash(torrent)
-                    if torrent_hash:
-                        downloader_torrent_map[torrent_hash] = torrent
-                check_hashes = list(torrent_tasks)
-                check_torrents = [
-                    downloader_torrent_map[torrent_hash]
-                    for torrent_hash in check_hashes
-                    if torrent_hash in downloader_torrent_map
-                ]
-                self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
-                self.__update_undeleted_torrents_missing_in_downloader(
-                    torrent_tasks,
-                    check_hashes,
-                    downloader_torrents,
-                )
-                self._save_task_data(task.id, "torrents", torrent_tasks)
-                for torrent in check_torrents:
-                    torrent_hash = self.__get_hash(torrent)
-                    torrent_task = torrent_tasks.get(torrent_hash)
-                    if not torrent_task or torrent_task.get("deleted"):
-                        continue
-                    torrent_key = (task.downloader, torrent_hash)
-                    if torrent_key not in counted_torrents:
-                        torrent_info = self.__get_torrent_info(torrent)
-                        total_size += float(
-                            torrent_info.get("total_size") or torrent_task.get("size") or 0
-                        )
-                        counted_torrents.add(torrent_key)
-
-                filtered_torrents = self.__filter_torrents_by_tag(check_torrents, task.delete_except_tags)
-                for torrent in filtered_torrents:
-                    torrent_hash = self.__get_hash(torrent)
-                    torrent_task = torrent_tasks.get(torrent_hash)
-                    if not torrent_task or torrent_task.get("deleted"):
-                        continue
-                    torrent_key = (task.downloader, torrent_hash)
-                    torrent_info = self.__get_torrent_info(torrent)
-                    pre_delete_reason = ""
-                    if not torrent_task.get("hit_and_run"):
-                        expired, expired_reason = self.__promotion_expired(torrent_info, torrent_task)
-                        timed_out = bool(
-                            task.download_time
-                            and torrent_info.get("downloaded", 0) < torrent_info.get("total_size", 0)
-                            and torrent_info.get("dltime", 0) >= float(task.download_time) * 3600
-                        )
-                        if expired:
-                            pre_delete_reason = expired_reason
-                        elif timed_out:
-                            pre_delete_reason = f"下载耗时达到 {task.download_time} 小时"
-                    should_delete, conditional_reason = self.__evaluate_conditions_for_delete(
-                        torrent_info,
-                        torrent_task,
-                    )
-                    safety_allowed, _ = self._delete_safety_allowed(task, torrent_info)
-                    torrent_size = float(torrent_info.get("total_size") or torrent_task.get("size") or 0)
-                    candidate_rows.setdefault(torrent_key, []).append(
-                        {
-                            "task": task,
-                            "torrent_hash": torrent_hash,
-                            "torrent_task": torrent_task,
-                            "downloader_name": task.downloader,
-                            "size": torrent_size,
-                            "pre_delete_reason": pre_delete_reason,
-                            "conditional_reason": conditional_reason if should_delete else "",
-                            "proxy_delete": task.proxy_delete,
-                            "completed": bool(
-                                torrent_size > 0 and torrent_info.get("downloaded", 0) >= torrent_size
-                            ),
-                            "hit_and_run": bool(torrent_task.get("hit_and_run")),
-                            "seeding_time": torrent_info.get("seeding_time", 0),
-                            "iatime": torrent_info.get("iatime", 0),
-                            "avg_upspeed": torrent_info.get("avg_upspeed", 0),
-                            "total_size": torrent_size,
-                            "dynamic_allowed": bool(
-                                safety_allowed
-                                and (not task.dynamic_require_conditions or should_delete)
-                            ),
-                            "dynamic_sort_mode": task.dynamic_sort_mode,
-                            "delete_dry_run": task.delete_dry_run,
-                            "delete_files": task.delete_files,
-                        }
-                    )
-
-        candidates: List[dict] = []
-        for torrent_key, rows in candidate_rows.items():
-            associations = associated_records.get(torrent_key, [])
-            if len(rows) != len(associations):
-                continue
-            candidate = dict(rows[0])
-            candidate.update(
-                {
-                    "associated_records": associations,
-                    "proxy_delete": all(row["proxy_delete"] for row in rows),
-                    "completed": all(row["completed"] for row in rows),
-                    "hit_and_run": any(row["hit_and_run"] for row in rows),
-                    "dynamic_allowed": all(row["dynamic_allowed"] for row in rows),
-                    "delete_dry_run": any(row["delete_dry_run"] for row in rows),
-                    "delete_files": all(row["delete_files"] for row in rows),
-                    "iatime": min(row["iatime"] for row in rows),
-                    "avg_upspeed": max(row["avg_upspeed"] for row in rows),
-                    "total_size": max(row["total_size"] for row in rows),
-                    "dynamic_sort_mode": rows[0]["dynamic_sort_mode"],
-                    "pre_delete_reason": (
-                        rows[0]["pre_delete_reason"]
-                        if all(row["pre_delete_reason"] for row in rows)
-                        else ""
-                    ),
-                    "conditional_reason": (
-                        rows[0]["conditional_reason"]
-                        if all(row["conditional_reason"] for row in rows)
-                        else ""
-                    ),
-                    "seeding_time": max(row["seeding_time"] for row in rows),
-                    "task_condition_reasons": {
-                        row["task"].id: {
-                            "pre_delete_reason": row["pre_delete_reason"],
-                            "conditional_reason": row["conditional_reason"],
-                        }
-                        for row in rows
-                    },
-                }
-            )
-            candidates.append(candidate)
-        return candidates, total_size, task_records, services
-
-    def _send_global_dynamic_delete_summary(
-        self,
-        deleted_entries: List[dict],
-        remaining_size: float,
-    ) -> None:
-        """按受影响任务通知开关发送全局区间删种汇总"""
-        notified_tasks = {
-            task.id: task
-            for entry in deleted_entries
-            for task, _ in entry.get(
-                "associated_records",
-                [(entry["task"], entry.get("torrent_task"))],
-            )
-            if task.notify
-        }
-        if not notified_tasks:
-            return
-        task_names = "、".join(task.name for task in notified_tasks.values())
-        self.post_message(
-            mtype=NotificationType.SiteMessage,
-            title="【刷流任务全局动态删除】",
-            text=(
-                f"任务：{task_names}\n"
-                f"删除：{len(deleted_entries)} 个种子\n"
-                f"当前做种：{self.__bytes_to_gb(remaining_size):.1f} GB"
-            ),
-        )
-
-    def _run_global_dynamic_delete(self) -> int:
-        """串行执行跨任务、跨下载器的全局动态删种并返回成功删除数"""
-        if not self._global_dynamic_delete_enabled():
-            return 0
-        global_lock = getattr(self, "_global_delete_lock", None)
-        if global_lock is None:
-            self._global_delete_lock = threading.Lock()
-            global_lock = self._global_delete_lock
-        if not global_lock.acquire(blocking=False):
-            logger.info("已有全局动态删种正在执行，本轮跳过")
-            return 0
-
-        try:
-            with self._all_task_locks_scope():
-                candidates, total_size, task_records, services = self._collect_global_dynamic_delete_candidates()
-                limits = [
-                    float(value) * 1024 ** 3
-                    for value in str(self._global_delete_size_range).split("-")
-                ]
-                min_size = limits[0]
-                max_size = limits[1] if len(limits) > 1 else limits[0]
-                delete_plan, _, threshold_triggered = self._select_global_dynamic_deletions(
-                    candidates,
-                    total_size,
-                    min_size,
-                    max_size,
-                )
-                if not delete_plan:
-                    if threshold_triggered:
-                        logger.info(
-                            f"全局做种体积 {self.__bytes_to_gb(total_size):.1f} GB 已达到动态删种上限，"
-                            "但没有符合任务策略的可删除种子"
-                        )
-                    else:
-                        logger.info(
-                            f"全局做种体积 {self.__bytes_to_gb(total_size):.1f} GB，"
-                            f"未达到动态删种上限 {self.__bytes_to_gb(max_size):.1f} GB"
-                        )
-                    return 0
-
-                plan_by_downloader: Dict[Tuple[str, bool], List[dict]] = {}
-                for entry in delete_plan:
-                    if entry.get("delete_dry_run"):
-                        logger.info(
-                            f"[模拟删种] 全局计划将删除：{entry.get('torrent_task', {}).get('title')}，"
-                            f"原因：{entry.get('delete_reason')}"
-                        )
-                        continue
-                    key = (entry["downloader_name"], bool(entry.get("delete_files", True)))
-                    plan_by_downloader.setdefault(key, []).append(entry)
-
-                deleted_entries: List[dict] = []
-                downloader_helper = DownloaderHelper()
-                for (downloader_name, delete_files), entries in plan_by_downloader.items():
-                    service = services.get(downloader_name)
-                    if not service or not service.instance:
-                        continue
-                    torrent_hashes = list(dict.fromkeys(entry["torrent_hash"] for entry in entries))
-                    if downloader_helper.is_downloader("qbittorrent", service=service):
-                        try:
-                            if getattr(service.instance, "qbc", None):
-                                service.instance.qbc.torrents_reannounce(torrent_hashes=torrent_hashes)
-                        except Exception as err:
-                            logger.warning(f"全局动态删种重新汇报下载器 [{downloader_name}] 失败：{str(err)}")
-                    try:
-                        if service.instance.delete_torrents(ids=torrent_hashes, delete_file=delete_files):
-                            deleted_entries.extend(entries)
-                    except Exception as err:
-                        logger.error(
-                            f"全局动态删种调用下载器 [{downloader_name}] 删除失败：{str(err)}"
-                        )
-
-                deleted_at = time.time()
-                affected_task_ids: Set[str] = set()
-                recorded_entries: List[dict] = []
-                notification_entries: List[Tuple[BrushTaskConfig, dict, str]] = []
-                for entry in deleted_entries:
-                    torrent_hash = entry["torrent_hash"]
-                    entry_recorded = False
-                    for task, _ in entry.get(
-                        "associated_records",
-                        [(entry["task"], entry.get("torrent_task"))],
-                    ):
-                        torrent_task = task_records.get(task.id, {}).get(torrent_hash)
-                        if not torrent_task:
-                            continue
-                        delete_reason = entry.get("task_delete_reasons", {}).get(
-                            task.id,
-                            entry["delete_reason"],
-                        )
-                        torrent_task.update({"deleted": True, "deleted_time": deleted_at})
-                        affected_task_ids.add(task.id)
-                        notification_entries.append((task, torrent_task, delete_reason))
-                        entry_recorded = True
-                    if entry_recorded:
-                        recorded_entries.append(entry)
-
-                for affected_task_id in affected_task_ids:
-                    self._save_task_data(
-                        affected_task_id,
-                        "torrents",
-                        task_records[affected_task_id],
-                    )
-                    self._recalculate_statistics(affected_task_id)
-
-                for task, torrent_task, delete_reason in notification_entries:
-                    try:
-                        with self._task_scope(task.id):
-                            self.__send_delete_message(torrent_task, delete_reason)
-                    except Exception as err:
-                        logger.warning(f"全局动态删种发送任务 [{task.name}] 通知失败：{str(err)}")
-                    logger.info(
-                        f"全局动态删种删除任务 [{task.name}] 种子："
-                        f"{torrent_task.get('title')}，原因：{delete_reason}"
-                    )
-
-                remaining_size = max(
-                    total_size - sum(float(entry.get("size") or 0) for entry in deleted_entries),
-                    0,
-                )
-                if threshold_triggered and len(limits) > 1 and recorded_entries:
-                    try:
-                        self._send_global_dynamic_delete_summary(recorded_entries, remaining_size)
-                    except Exception as err:
-                        logger.warning(f"全局动态删种发送汇总通知失败：{str(err)}")
-                return len(recorded_entries)
-        finally:
-            global_lock.release()
-
-    def __delete_torrent_for_proxy(
-        self,
-        torrents: List[Any],
-        torrent_tasks: Dict[str, dict],
-    ) -> List[str]:
-        """按动态体积阈值执行前置、条件和兜底删种"""
-        task = self._get_task_config()
-        if not task or not task.proxy_delete or not task.delete_size_range:
-            return []
-        torrent_info_map = {
-            self.__get_hash(torrent): self.__get_torrent_info(torrent) for torrent in torrents
-        }
-        total_size = self.__calculate_seeding_torrents_size(torrent_tasks)
-        pre_delete_hashes = self.__delete_torrent_for_evaluate_proxy_pre_conditions(torrents, torrent_tasks)
-        total_size -= sum(torrent_info_map[item].get("total_size", 0) for item in pre_delete_hashes if item in torrent_info_map)
-        remaining_torrents = [torrent for torrent in torrents if self.__get_hash(torrent) not in pre_delete_hashes]
-        limits = [float(value) * 1024 ** 3 for value in task.delete_size_range.split("-")]
-        min_size = limits[0]
-        max_size = limits[1] if len(limits) > 1 else limits[0]
-        if total_size < max_size:
-            return pre_delete_hashes
-        delete_hashes = list(pre_delete_hashes)
-        conditional_hashes = self.__delete_torrent_for_evaluate_conditions(
-            remaining_torrents, torrent_tasks, dynamic=True
-        )
-        delete_hashes.extend(conditional_hashes)
-        total_size -= sum(
-            torrent_info_map[item].get("total_size", 0)
-            for item in conditional_hashes
-            if item in torrent_info_map
-        )
-        if total_size > min_size:
-            remaining_hashes = [
-                self.__get_hash(torrent)
-                for torrent in remaining_torrents
-                if self.__get_hash(torrent) not in delete_hashes
-            ]
-            completed = self.downloader.get_completed_torrents(ids=remaining_hashes)
-            candidates = []
-            for torrent in completed:
-                torrent_hash = self.__get_hash(torrent)
-                if torrent_tasks.get(torrent_hash, {}).get("hit_and_run"):
-                    continue
-                info = torrent_info_map.get(torrent_hash) or self.__get_torrent_info(torrent)
-                safety_allowed, _ = self._delete_safety_allowed(task, info)
-                if not safety_allowed:
-                    continue
-                if task.dynamic_require_conditions:
-                    matched, _ = self.__evaluate_conditions_for_delete(
-                        info, torrent_tasks.get(torrent_hash, {})
-                    )
-                    if not matched:
-                        continue
-                candidates.append((torrent_hash, info))
-            candidates.sort(
-                key=lambda item: self._dynamic_sort_key(item[1], task.dynamic_sort_mode),
-                reverse=True,
-            )
-            for torrent_hash, torrent_info in candidates:
-                if total_size <= min_size:
-                    break
-                delete_hashes.append(torrent_hash)
-                total_size -= torrent_info.get("total_size", 0)
-                torrent_task = torrent_tasks.get(torrent_hash, {})
-                reason = "触发动态删除阈值，系统按智能优先级清理"
-                if task.delete_dry_run:
-                    logger.info(f"[模拟删种] 将删除：{torrent_task.get('title')}，原因：{reason}")
-                else:
-                    self.__send_delete_message(torrent_task, reason)
-        if len(limits) > 1 and delete_hashes and not task.delete_dry_run:
-            self.__send_message(
-                "【刷流任务动态删除】",
-                f"任务：{task.name}\n删除：{len(delete_hashes)} 个种子\n当前做种：{self.__bytes_to_gb(total_size):.1f} GB",
-            )
-        return delete_hashes
 
     def __update_undeleted_torrents_missing_in_downloader(
         self,

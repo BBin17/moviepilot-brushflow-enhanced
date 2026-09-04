@@ -1,3 +1,5 @@
+"""BrushFlow 9.0 统一收益引擎与本地学习测试。"""
+
 import importlib.util
 from pathlib import Path
 import sys
@@ -16,9 +18,8 @@ def load_module(name, filename):
     return module
 
 
-decision = load_module("brushflow_v8_decision", "decision.py")
-learning = load_module("brushflow_v8_learning", "learning.py")
-migration = load_module("brushflow_v8_migration", "migration.py")
+decision = load_module("brushflow_v9_decision", "decision.py")
+learning = load_module("brushflow_v9_learning", "learning.py")
 GIB = 1024**3
 
 
@@ -172,9 +173,9 @@ class DeletionTests(unittest.TestCase):
         self.assertEqual(len(result.selected), 1)
         self.assertLessEqual(result.estimated_freed_bytes, 4 * GIB)
 
-    def test_severe_over_capacity_enters_recovery_and_expands_capacity_cap(self):
+    def test_severe_over_capacity_still_respects_normal_capacity_cap(self):
         result = decision.select_deletions(
-            [cold_seed(str(index), 10) for index in range(3)],
+            [cold_seed(str(index), 3) for index in range(3)],
             balanced_policy(
                 max_delete_per_run=3,
                 max_delete_percent_day=5,
@@ -186,22 +187,7 @@ class DeletionTests(unittest.TestCase):
         )
         self.assertTrue(result.recovery_active)
         self.assertEqual(len(result.selected), 1)
-        self.assertEqual(result.estimated_freed_bytes, 10 * GIB)
-        self.assertIn("capacity_recovery", result.reason_codes)
-
-    def test_recovery_allows_one_daily_safe_oversize_seed(self):
-        result = decision.select_deletions(
-            [cold_seed("large", 30)],
-            balanced_policy(
-                max_delete_per_run=1,
-                max_delete_capacity_percent_run=4,
-                max_delete_capacity_percent_day=8,
-            ),
-            current_size=130 * GIB,
-            disk_limit=100 * GIB,
-        )
-        self.assertEqual([row.torrent_hash for row in result.selected], ["large"])
-        self.assertIn("recovery_oversize_single", result.reason_codes)
+        self.assertLessEqual(result.estimated_freed_bytes, 4 * GIB)
 
     def test_capacity_cost_keeps_rising_beyond_trigger(self):
         seed = cold_seed("capacity", 20)
@@ -222,12 +208,12 @@ class DeletionTests(unittest.TestCase):
             normal.evaluated[0].contributions["capacity_cost"],
         )
 
-    def test_73_compat_engine_does_not_require_v8_confirmation(self):
+    def test_unified_engine_always_requires_confirmation(self):
         result = decision.evaluate_candidate(
             cold_seed("legacy", low_value_confirmations=0, low_value_span_minutes=0),
-            balanced_policy(engine_version="7.3", ratio_weight=18),
+            balanced_policy(ratio_weight=18),
         )
-        self.assertEqual(result.action, "candidate")
+        self.assertEqual(result.action, "watch")
 
 
 class LearningTests(unittest.TestCase):
@@ -253,36 +239,6 @@ class LearningTests(unittest.TestCase):
         second = learning.update_learning_state(first, [{"hash": "a", "uploaded": GIB, "size": 10 * GIB}], now=4600)
         self.assertEqual(second["sample_count"], 1)
         self.assertGreater(second["features"]["__all__"]["ewma"], 0)
-
-
-class MigrationTests(unittest.TestCase):
-    def test_731_migration_is_backed_up_and_idempotent(self):
-        original = {
-            "id": "task-1",
-            "name": "Coffee",
-            "smart_enabled": True,
-            "delete_files": False,
-            "min_seed_time": 48,
-        }
-        rows, backups, changed = migration.migrate_task_rows_v8([original], now=100)
-        self.assertTrue(changed)
-        self.assertEqual(rows[0]["smart_profile"], "balanced")
-        self.assertEqual(rows[0]["smart_shadow_until"], 100 + 48 * 3600)
-        self.assertFalse(rows[0]["delete_files"])
-        self.assertEqual(backups["task-1"]["config"], original)
-        again, backups_again, changed_again = migration.migrate_task_rows_v8(rows, backups, now=200)
-        self.assertFalse(changed_again)
-        self.assertEqual(again, rows)
-        self.assertEqual(backups_again, backups)
-
-    def test_disabled_smart_task_is_not_enabled(self):
-        rows, _, _ = migration.migrate_task_rows_v8(
-            [{"id": "off", "smart_enabled": False}],
-            now=100,
-        )
-        self.assertFalse(rows[0]["smart_enabled"])
-        self.assertIsNone(rows[0]["smart_shadow_until"])
-        self.assertTrue(rows[0]["delete_files"])
 
 
 if __name__ == "__main__":

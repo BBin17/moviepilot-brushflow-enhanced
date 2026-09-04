@@ -45,12 +45,10 @@ def _seed(**overrides):
 def _policy(**overrides):
     values = {
         "min_seed_time_hours": 72,
-        "min_ratio": 0,
         "score_threshold": 40,
         "score_margin": 0,
         "max_delete_per_run": 3,
         "max_delete_percent_day": 100,
-        "allow_proactive_delete": False,
         "max_delete_capacity_percent_run": 100,
         "max_delete_capacity_percent_day": 100,
     }
@@ -113,17 +111,6 @@ def test_no_pressure_means_no_deletion_by_default():
     assert result.reason_codes == ("no_pressure",)
 
 
-def test_proactive_mode_cleans_cold_seed_without_capacity_threshold():
-    cold = _seed(uploaded=0, ratio=0, num_seeds=30, iatime=14 * 86400)
-    result = select_deletions(
-        [cold],
-        _policy(allow_proactive_delete=True),
-        current_size=10 * 1024**3,
-        disk_limit=500 * 1024**3,
-    )
-    assert [item.torrent_hash for item in result.selected] == ["hash-1"]
-
-
 def test_pressure_selects_low_value_and_respects_run_cap():
     seeds = [
         _seed(hash="low-1", uploaded=0, ratio=0, num_seeds=30, iatime=14 * 86400),
@@ -140,12 +127,6 @@ def test_pressure_selects_low_value_and_respects_run_cap():
     )
     assert [item.torrent_hash for item in result.selected] == ["low-1", "low-2"]
     assert "run_cap" in result.reason_codes
-
-
-def test_minimum_ratio_can_be_enabled_per_site():
-    result = evaluate_candidate(_seed(ratio=0.2), _policy(min_ratio=0.5))
-    assert result.action == "blocked"
-    assert result.reason_codes == ("min_ratio",)
 
 
 def test_smart_selection_prefers_promotion_demand_and_scarcity():
