@@ -92,7 +92,7 @@ function healthTone(level) {
   return ({ error: 'error', warning: 'warning', info: 'info', success: 'success' })[level] || 'secondary'
 }
 
-const {renderList:_renderList$2,Fragment:_Fragment$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$2,toDisplayString:_toDisplayString$2,createElementVNode:_createElementVNode$2,unref:_unref$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,normalizeClass:_normalizeClass$2} = await importShared('vue');
+const {renderList:_renderList$2,Fragment:_Fragment$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$2,toDisplayString:_toDisplayString$2,createElementVNode:_createElementVNode$2,unref:_unref$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,normalizeClass:_normalizeClass$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
 
 
 const _hoisted_1$2 = {
@@ -160,24 +160,29 @@ return (_ctx, _cache) => {
         _createElementVNode$2("p", null, _toDisplayString$2(task.strategy?.ui_summary?.health?.message || '首次检查后显示下一步。'), 1)
       ], 10, _hoisted_2$2))
     }), 128)),
-    _createElementVNode$2("button", {
-      type: "button",
-      class: "task-health-card task-health-card--create",
-      onClick: _cache[0] || (_cache[0] = $event => (_ctx.$emit('create')))
-    }, [
-      _createVNode$2(_component_VIcon, {
-        icon: "mdi-plus-circle-outline",
-        size: "30"
-      }),
-      _cache[1] || (_cache[1] = _createElementVNode$2("strong", null, "新建刷流任务", -1)),
-      _cache[2] || (_cache[2] = _createElementVNode$2("span", null, "按四步向导完成设置", -1))
-    ])
+    (!__props.tasks.length)
+      ? (_openBlock$2(), _createElementBlock$2("button", {
+          key: 0,
+          type: "button",
+          class: "task-health-card task-health-card--create",
+          onClick: _cache[0] || (_cache[0] = $event => (_ctx.$emit('create')))
+        }, [
+          _createVNode$2(_component_VIcon, {
+            icon: "mdi-plus-circle-outline",
+            size: "24"
+          }),
+          _cache[1] || (_cache[1] = _createElementVNode$2("span", null, [
+            _createElementVNode$2("strong", null, "新建刷流任务"),
+            _createElementVNode$2("small", null, "按四步向导完成设置")
+          ], -1))
+        ]))
+      : _createCommentVNode$2("", true)
   ]))
 }
 }
 
 };
-const TaskHealthCards = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-13f92333"]]);
+const TaskHealthCards = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-e537eec1"]]);
 
 const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,openBlock:_openBlock$1,createElementBlock:_createElementBlock$1,createElementVNode:_createElementVNode$1,normalizeClass:_normalizeClass$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1} = await importShared('vue');
 
@@ -1357,13 +1362,20 @@ const _hoisted_20 = {
 };
 const _hoisted_21 = { class: "panel mt-4" };
 const _hoisted_22 = { class: "event-list" };
-const _hoisted_23 = { key: 0 };
+const _hoisted_23 = {
+  key: 0,
+  class: "reason"
+};
 const _hoisted_24 = {
+  key: 1,
+  class: "error"
+};
+const _hoisted_25 = {
   key: 0,
   class: "bf9__empty small"
 };
-const _hoisted_25 = { class: "settings-grid" };
-const _hoisted_26 = { class: "settings-title" };
+const _hoisted_26 = { class: "settings-grid" };
+const _hoisted_27 = { class: "settings-title" };
 
 const {computed,inject,onMounted,onUnmounted,ref} = await importShared('vue');
 
@@ -1883,15 +1895,18 @@ return (_ctx, _cache) => {
                           }, null, 8, ["icon", "color"]),
                           _createElementVNode("div", null, [
                             _createElementVNode("strong", null, _toDisplayString(run.kind==='brush'?'选种刷新':'种子检查'), 1),
-                            _createElementVNode("span", null, _toDisplayString(_unref(formatDateTime)(run.started_at)) + " · " + _toDisplayString(run.kind==='brush'?`新增 ${run.added_count||0}，过滤 ${run.filtered_count||0}`:`活跃 ${run.active_count||0}，删除 ${run.deleted_count||0}`), 1),
+                            _createElementVNode("span", null, _toDisplayString(_unref(formatDateTime)(run.started_at)) + " · " + _toDisplayString(run.kind==='brush'?`新增 ${run.added_count||0}，过滤 ${run.filtered_count||0}`:`活跃 ${run.active_count||0}，候选 ${run.deletion_candidate_count||0}，删除 ${run.deleted_count||0}`), 1),
+                            (run.deletion_message)
+                              ? (_openBlock(), _createElementBlock("small", _hoisted_23, _toDisplayString(run.deletion_message), 1))
+                              : _createCommentVNode("", true),
                             (run.error)
-                              ? (_openBlock(), _createElementBlock("small", _hoisted_23, _toDisplayString(run.error), 1))
+                              ? (_openBlock(), _createElementBlock("small", _hoisted_24, _toDisplayString(run.error), 1))
                               : _createCommentVNode("", true)
                           ])
                         ]))
                       }), 128)),
                       (!runs.value.length)
-                        ? (_openBlock(), _createElementBlock("div", _hoisted_24, "暂无运行记录"))
+                        ? (_openBlock(), _createElementBlock("div", _hoisted_25, "暂无运行记录"))
                         : _createCommentVNode("", true)
                     ])
                   ])
@@ -1950,7 +1965,7 @@ return (_ctx, _cache) => {
                     color: "primary",
                     "hide-details": ""
                   }, null, 8, ["modelValue"]),
-                  _createElementVNode("div", _hoisted_25, [
+                  _createElementVNode("div", _hoisted_26, [
                     _createVNode(_component_VTextField, {
                       modelValue: settingsDraft.value.global_disksize,
                       "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((settingsDraft.value.global_disksize) = $event)),
@@ -1993,7 +2008,7 @@ return (_ctx, _cache) => {
                 ]),
                 _createVNode(_component_VDivider),
                 _createElementVNode("section", null, [
-                  _createElementVNode("div", _hoisted_26, [
+                  _createElementVNode("div", _hoisted_27, [
                     _cache[61] || (_cache[61] = _createElementVNode("div", null, [
                       _createElementVNode("h3", null, "站点签到"),
                       _createElementVNode("p", null, "签到是独立工具，不参与选种、下载健康或删种决策。")
@@ -2148,6 +2163,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const BrushFlowV9 = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cc8c6a1d"]]);
+const BrushFlowV9 = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-08daead3"]]);
 
 export { BrushFlowV9 as B };

@@ -75,7 +75,7 @@ from .download_health import (
     policy_for_profile,
 )
 from .v9 import TaskConfigV9, migrate_task_rows_v9
-from .presentation import build_health_summary
+from .presentation import build_health_summary, deletion_quota_message
 from .repository import TaskRepository
 
 
@@ -1749,9 +1749,10 @@ class BrushFlow(_PluginBase):
             code in deletion_reason_codes
             for code in ("byte_cap", "daily_count_cap", "run_count_cap")
         ):
+            quota_message = deletion_quota_message(deletion_reason_codes)
             readiness = {
                 "state": "quota",
-                "message": "已有低价值候选，但本轮或今日清理额度已用完；策略会在额度恢复后继续处理。",
+                "message": f"已有低价值候选，但{quota_message}；策略会在额度恢复后继续处理。",
                 "candidate_count": eligible_count,
                 "candidate_bytes": eligible_bytes,
             }
@@ -2707,6 +2708,18 @@ class BrushFlow(_PluginBase):
                 "planned_delete_count": planned_delete_count,
                 "dry_run": False,
                 "active_count": sum(1 for item in torrent_tasks.values() if not item.get("deleted")),
+            }
+        )
+        strategy_status = self._build_strategy_status(task.id)
+        deletion_summary = (strategy_status.get("ui_summary") or {}).get("deletion") or {}
+        report.update(
+            {
+                "deletion_state": deletion_summary.get("state"),
+                "deletion_message": deletion_summary.get("message"),
+                "deletion_candidate_count": int(deletion_summary.get("candidate_count") or 0),
+                "deletion_candidate_bytes": float(deletion_summary.get("candidate_bytes") or 0),
+                "protected_count": int(deletion_summary.get("protected_count") or 0),
+                "protected_bytes": float(deletion_summary.get("protected_bytes") or 0),
             }
         )
 

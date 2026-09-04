@@ -28,12 +28,13 @@ defineEmits(['select', 'create'])
       </div>
       <p>{{ task.strategy?.ui_summary?.health?.message || '首次检查后显示下一步。' }}</p>
     </button>
-    <button type="button" class="task-health-card task-health-card--create" @click="$emit('create')">
-      <VIcon icon="mdi-plus-circle-outline" size="30" /><strong>新建刷流任务</strong><span>按四步向导完成设置</span>
+    <button v-if="!tasks.length" type="button" class="task-health-card task-health-card--create" @click="$emit('create')">
+      <VIcon icon="mdi-plus-circle-outline" size="24" />
+      <span><strong>新建刷流任务</strong><small>按四步向导完成设置</small></span>
     </button>
   </section>
 </template>
 
 <style scoped>
-.task-health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.task-health-card{display:flex;flex-direction:column;gap:10px;min-width:0;padding:16px;border:1px solid rgba(var(--v-border-color),var(--v-border-opacity));border-radius:16px;background:rgba(var(--v-theme-surface),.72);color:inherit;text-align:start;cursor:pointer;transition:.18s ease}.task-health-card:hover,.task-health-card.selected{border-color:rgb(var(--v-theme-primary));transform:translateY(-1px)}.task-health-card__top,.task-health-card__capacity,.task-health-card__meta{display:flex;justify-content:space-between;gap:10px}.task-health-card__top>div{display:flex;flex-direction:column}.task-health-card span,.task-health-card small,.task-health-card p{color:rgba(var(--v-theme-on-surface),var(--v-medium-emphasis-opacity));font-size:.8rem}.task-health-card p{margin:0;line-height:1.45}.task-health-card__capacity span{font-size:1.2rem;font-weight:700;color:inherit}.task-health-card--create{align-items:center;justify-content:center;min-height:190px;text-align:center;color:rgb(var(--v-theme-primary))}@media(max-width:599px){.task-health-grid{grid-template-columns:1fr}}
+.task-health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.task-health-card{display:flex;flex-direction:column;gap:10px;min-width:0;padding:16px;border:1px solid rgba(var(--v-border-color),var(--v-border-opacity));border-radius:16px;background:rgba(var(--v-theme-surface),.72);color:inherit;text-align:start;cursor:pointer;transition:.18s ease}.task-health-card:hover,.task-health-card.selected{border-color:rgb(var(--v-theme-primary));transform:translateY(-1px)}.task-health-card__top,.task-health-card__capacity,.task-health-card__meta{display:flex;justify-content:space-between;gap:10px}.task-health-card__top>div{display:flex;flex-direction:column}.task-health-card span,.task-health-card small,.task-health-card p{color:rgba(var(--v-theme-on-surface),var(--v-medium-emphasis-opacity));font-size:.8rem}.task-health-card p{margin:0;line-height:1.45}.task-health-card__capacity span{font-size:1.2rem;font-weight:700;color:inherit}.task-health-card--create{align-items:center;align-self:start;flex-direction:row;justify-content:center;min-height:88px;border-style:dashed;text-align:left;color:rgb(var(--v-theme-primary))}.task-health-card--create>span{display:flex;flex-direction:column;gap:2px}.task-health-card--create strong{font-size:.95rem}.task-health-card--create small{font-size:.76rem}@media(max-width:599px){.task-health-grid{grid-template-columns:1fr}}
 </style>

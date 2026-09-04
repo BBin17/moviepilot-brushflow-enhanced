@@ -5,6 +5,21 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional
 
 
+QUOTA_REASON_LABELS = {
+    "byte_cap": "本轮或每日释放容量额度已用尽",
+    "daily_count_cap": "每日删除数量额度已用尽",
+    "run_count_cap": "本轮删除数量额度已用尽",
+}
+
+
+def deletion_quota_message(reason_codes: list[str] | tuple[str, ...]) -> str:
+    """把命中的删除额度守门原因转成可直接展示的精确说明。"""
+    labels = [QUOTA_REASON_LABELS[code] for code in QUOTA_REASON_LABELS if code in reason_codes]
+    if not labels:
+        return ""
+    return "、".join(labels)
+
+
 def build_health_summary(
     *,
     runtime_error: Optional[str],

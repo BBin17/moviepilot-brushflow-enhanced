@@ -53,3 +53,11 @@ def test_observation_wins_over_normal_capacity_pressure():
 def test_paused_and_healthy_are_distinct():
     assert _summary(task_enabled=False)["health"]["status"] == "task_paused"
     assert _summary()["health"]["status"] == "healthy"
+
+
+def test_deletion_quota_message_names_the_exact_limits():
+    assert presentation.deletion_quota_message(["daily_count_cap"]) == "每日删除数量额度已用尽"
+    assert presentation.deletion_quota_message(["byte_cap", "run_count_cap"]) == (
+        "本轮或每日释放容量额度已用尽、本轮删除数量额度已用尽"
+    )
+    assert presentation.deletion_quota_message(["min_seed_time"]) == ""
