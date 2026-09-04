@@ -1096,6 +1096,41 @@ class BrushFlow(_PluginBase):
         finally:
             signin_lock.release()
 
+    def _validate_task_reference(self, task: BrushTaskConfig, notify: bool = True) -> bool:
+        """校验任务引用的私有站点和下载器是否仍然存在。"""
+        site = SiteOper().get(task.site_id)
+        downloader_configs = DownloaderHelper().get_configs()
+        valid = bool(
+            site
+            and not getattr(site, "public", False)
+            and task.downloader
+            and task.downloader in downloader_configs
+        )
+        if notify and not valid:
+            self._log_and_notify_error(f"刷流任务 [{task.name}] 引用的站点或下载器不存在")
+        return valid
+
+    @staticmethod
+    def _torrent_has_tag(torrent: Any, tag: str) -> bool:
+        """判断 qBittorrent 种子是否仍绑定指定标签。"""
+        if not isinstance(torrent, dict):
+            return False
+        tags = {
+            item.strip()
+            for item in str(torrent.get("tags") or "").split(",")
+            if item.strip()
+        }
+        return tag in tags
+
+    @staticmethod
+    def _delete_qbittorrent_tags(service: Any, tags: Union[str, List[str]]) -> bool:
+        """删除 qBittorrent 全局标签定义，不调用需要种子 Hash 的 removeTags。"""
+        client = getattr(getattr(service, "instance", None), "qbc", None)
+        if not client or not tags:
+            return False
+        client.torrents_delete_tags(tags=tags)
+        return True
+
     def _cleanup_unused_task_tag(
         self,
         task: BrushTaskConfig,
