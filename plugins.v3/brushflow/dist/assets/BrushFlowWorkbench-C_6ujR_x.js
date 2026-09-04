@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, c as cloneTask, n as normalizeTask, a as applySmartProfile, t as taskStateMeta, b as formatDateTime, f as formatBytes, d as formatDuration, e as torrentProgress, u as unwrapResponse, g as normalizeSettings } from './_plugin-vue_export-helper-CjPs3ZmZ.js';
+import { _ as _export_sfc, c as cloneTask, n as normalizeTask, a as applySmartProfile, t as taskStateMeta, f as formatBytes, b as formatDateTime, d as formatDuration, e as torrentProgress, u as unwrapResponse, g as normalizeSettings } from './_plugin-vue_export-helper-CjPs3ZmZ.js';
 
 const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,createElementVNode:_createElementVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,createElementBlock:_createElementBlock$1,withModifiers:_withModifiers} = await importShared('vue');
 
@@ -1937,57 +1937,61 @@ const _hoisted_31 = {
   class: "brushflow-strategy-actions"
 };
 const _hoisted_32 = { class: "brushflow-run-summary brushflow-strategy-metrics" };
-const _hoisted_33 = { class: "brushflow-decision-grid" };
-const _hoisted_34 = {
+const _hoisted_33 = {
   key: 0,
-  class: "brushflow-table-empty"
+  class: "text-caption mt-1"
 };
+const _hoisted_34 = { class: "brushflow-decision-grid" };
 const _hoisted_35 = {
   key: 0,
   class: "brushflow-table-empty"
 };
 const _hoisted_36 = {
+  key: 0,
+  class: "brushflow-table-empty"
+};
+const _hoisted_37 = {
   key: 1,
   class: "text-caption text-medium-emphasis mt-2"
 };
-const _hoisted_37 = { class: "brushflow-panel__head" };
-const _hoisted_38 = { class: "brushflow-panel__title-row" };
-const _hoisted_39 = { class: "torrent-title-cell" };
-const _hoisted_40 = { class: "brushflow-mobile-torrents" };
-const _hoisted_41 = { class: "brushflow-mobile-torrent__head" };
-const _hoisted_42 = { class: "brushflow-mobile-torrent__meta" };
-const _hoisted_43 = { class: "text-body-2 text-medium-emphasis" };
-const _hoisted_44 = {
+const _hoisted_38 = { class: "brushflow-panel__head" };
+const _hoisted_39 = { class: "brushflow-panel__title-row" };
+const _hoisted_40 = { class: "torrent-title-cell" };
+const _hoisted_41 = { class: "brushflow-mobile-torrents" };
+const _hoisted_42 = { class: "brushflow-mobile-torrent__head" };
+const _hoisted_43 = { class: "brushflow-mobile-torrent__meta" };
+const _hoisted_44 = { class: "text-body-2 text-medium-emphasis" };
+const _hoisted_45 = {
   key: 0,
   class: "brushflow-table-empty"
 };
-const _hoisted_45 = { class: "brushflow-diagnostic-head" };
-const _hoisted_46 = { class: "text-subtitle-1 font-weight-medium" };
-const _hoisted_47 = { class: "text-body-2 text-medium-emphasis" };
-const _hoisted_48 = { class: "brushflow-diagnostic-grid" };
-const _hoisted_49 = { class: "brushflow-pipeline" };
-const _hoisted_50 = { class: "brushflow-pipeline__index" };
-const _hoisted_51 = {
+const _hoisted_46 = { class: "brushflow-diagnostic-head" };
+const _hoisted_47 = { class: "text-subtitle-1 font-weight-medium" };
+const _hoisted_48 = { class: "text-body-2 text-medium-emphasis" };
+const _hoisted_49 = { class: "brushflow-diagnostic-grid" };
+const _hoisted_50 = { class: "brushflow-pipeline" };
+const _hoisted_51 = { class: "brushflow-pipeline__index" };
+const _hoisted_52 = {
   key: 0,
   class: "brushflow-reasons"
 };
-const _hoisted_52 = { class: "brushflow-reason__track" };
-const _hoisted_53 = {
+const _hoisted_53 = { class: "brushflow-reason__track" };
+const _hoisted_54 = {
   key: 1,
   class: "brushflow-table-empty"
 };
-const _hoisted_54 = { class: "brushflow-events" };
-const _hoisted_55 = {
+const _hoisted_55 = { class: "brushflow-events" };
+const _hoisted_56 = {
   key: 0,
   class: "text-error"
 };
-const _hoisted_56 = {
+const _hoisted_57 = {
   key: 0,
   class: "brushflow-table-empty"
 };
-const _hoisted_57 = { class: "brushflow-config-grid" };
-const _hoisted_58 = { class: "brushflow-facts brushflow-facts--two" };
-const _hoisted_59 = { class: "brushflow-config-actions" };
+const _hoisted_58 = { class: "brushflow-config-grid" };
+const _hoisted_59 = { class: "brushflow-facts brushflow-facts--two" };
+const _hoisted_60 = { class: "brushflow-config-actions" };
 
 const {computed,inject,onMounted,onUnmounted,ref,watch} = await importShared('vue');
 
@@ -2063,11 +2067,38 @@ const taskConfig = computed(() => taskDetail.value?.task || {});
 const taskRuns = computed(() => taskDetail.value?.runs || []);
 const strategy = computed(() => taskDetail.value?.strategy || selectedTask.value?.strategy || {});
 const downloadHealth = computed(() => strategy.value.download_health || {});
+const capacityLimitBytes = computed(() => {
+  const engineCapacity = Number(strategy.value.capacity_bytes || 0);
+  if (engineCapacity > 0) return engineCapacity
+  return Number(taskConfig.value.disksize || 0) * 1024 ** 3
+});
+const capacityUsagePercent = computed(() => {
+  if (!capacityLimitBytes.value) return 0
+  return (Number(selectedTask.value?.seeding_size || 0) * 100) / capacityLimitBytes.value
+});
+const capacityCaption = computed(() => {
+  if (!capacityLimitBytes.value) return '未设置任务容量'
+  return `上限 ${formatBytes(capacityLimitBytes.value)} · ${Math.round(capacityUsagePercent.value)}% 已用`
+});
+const readinessTone = computed(() => {
+  const readiness = strategy.value.deletion_readiness?.state;
+  if (readiness === 'planned' || readiness === 'at_target') return 'success'
+  if (readiness === 'shadow' || readiness === 'waiting') return 'info'
+  return 'warning'
+});
+
+function formatBlockerSummary(blockers) {
+  return (blockers || [])
+    .slice(0, 3)
+    .map(item => `${item.label} ${item.count} 个${item.bytes ? ` / ${formatBytes(item.bytes)}` : ''}`)
+    .join('；')
+}
+
 const latestBrushRun = computed(() => taskRuns.value.find(item => item.kind === 'brush') || null);
 const torrentData = computed(() => taskDetail.value?.torrents || { items: [], total: 0, page: 1, page_size: 50 });
 const totalTorrentPages = computed(() => Math.max(Math.ceil(torrentData.value.total / torrentData.value.page_size), 1));
 const seedingPercent = computed(() => {
-  const limit = Number(taskConfig.value.disksize || 0) * 1024 ** 3;
+  const limit = capacityLimitBytes.value;
   if (!limit) return 0
   return Math.min(Math.round((Number(selectedTask.value?.seeding_size || 0) * 100) / limit), 100)
 });
@@ -2977,14 +3008,14 @@ return (_ctx, _cache) => {
                                 default: _withCtx(() => [
                                   _cache[50] || (_cache[50] = _createElementVNode("span", null, "当前做种", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(_unref(formatBytes)(selectedTask.value.seeding_size)), 1),
-                                  _createElementVNode("small", null, _toDisplayString(taskConfig.value.disksize ? `上限 ${taskConfig.value.disksize} GB` : '未设置体积上限'), 1),
-                                  (taskConfig.value.disksize)
+                                  _createElementVNode("small", null, _toDisplayString(capacityCaption.value), 1),
+                                  (capacityLimitBytes.value)
                                     ? (_openBlock(), _createBlock(_component_VProgressLinear, {
                                         key: 0,
                                         "model-value": seedingPercent.value,
                                         height: "4",
-                                        color: "primary"
-                                      }, null, 8, ["model-value"]))
+                                        color: capacityUsagePercent.value > 100 ? 'error' : 'primary'
+                                      }, null, 8, ["model-value", "color"]))
                                     : _createCommentVNode("", true)
                                 ]),
                                 _: 1
@@ -3259,7 +3290,7 @@ return (_ctx, _cache) => {
                                     _createElementVNode("strong", null, _toDisplayString(strategy.value.capacity_trigger_percent || 90) + "% → " + _toDisplayString(strategy.value.capacity_target_percent || 85) + "%", 1)
                                   ]),
                                   _createElementVNode("div", null, [
-                                    _cache[77] || (_cache[77] = _createElementVNode("span", null, "待回收容量", -1)),
+                                    _cache[77] || (_cache[77] = _createElementVNode("span", null, "距离容量目标", -1)),
                                     _createElementVNode("strong", null, _toDisplayString(_unref(formatBytes)(strategy.value.capacity_debt_bytes || 0)), 1)
                                   ]),
                                   _createElementVNode("div", null, [
@@ -3267,7 +3298,7 @@ return (_ctx, _cache) => {
                                     _createElementVNode("strong", null, _toDisplayString(strategy.value.recovery_active ? `运行中 · ${strategy.value.recovery_trigger_percent || 125}%` : '未触发'), 1)
                                   ]),
                                   _createElementVNode("div", null, [
-                                    _cache[79] || (_cache[79] = _createElementVNode("span", null, "预计释放", -1)),
+                                    _cache[79] || (_cache[79] = _createElementVNode("span", null, "本轮计划释放", -1)),
                                     _createElementVNode("strong", null, _toDisplayString(_unref(formatBytes)(strategy.value.estimated_freed_bytes || 0)), 1)
                                   ]),
                                   _createElementVNode("div", null, [
@@ -3287,18 +3318,22 @@ return (_ctx, _cache) => {
                                     _createElementVNode("strong", null, _toDisplayString(downloadHealth.value.stalled_count || 0) + " 卡住 · " + _toDisplayString(downloadHealth.value.slow_count || 0) + " 低速", 1)
                                   ])
                                 ]),
-                                (strategy.value.recovery_active)
+                                (strategy.value.deletion_readiness?.message)
                                   ? (_openBlock(), _createBlock(_component_VAlert, {
                                       key: 1,
-                                      type: "warning",
+                                      type: readinessTone.value,
                                       variant: "tonal",
                                       density: "compact"
                                     }, {
                                       default: _withCtx(() => [
-                                        _createTextVNode(" 当前做种超过任务容量 " + _toDisplayString(strategy.value.recovery_trigger_percent || 125) + "%，已进入超额恢复模式：低价值大种会获得更高容量成本，单轮/单日容量配额按恢复设置放宽；H&R、最低保种、真实上传与活动连接仍为硬保护。 ", 1)
+                                        _cache[84] || (_cache[84] = _createElementVNode("strong", null, "删种下一步：", -1)),
+                                        _createTextVNode(_toDisplayString(strategy.value.deletion_readiness.message) + " ", 1),
+                                        (strategy.value.deletion_blockers?.length)
+                                          ? (_openBlock(), _createElementBlock("div", _hoisted_33, " 主要保护：" + _toDisplayString(formatBlockerSummary(strategy.value.deletion_blockers)), 1))
+                                          : _createCommentVNode("", true)
                                       ]),
                                       _: 1
-                                    }))
+                                    }, 8, ["type"]))
                                   : _createCommentVNode("", true),
                                 (downloadHealth.value.stalled_count || downloadHealth.value.slow_count || downloadHealth.value.queued_count || downloadHealth.value.error_count)
                                   ? (_openBlock(), _createBlock(_component_VAlert, {
@@ -3330,15 +3365,15 @@ return (_ctx, _cache) => {
                               class: "brushflow-panel app-surface-static"
                             }, {
                               default: _withCtx(() => [
-                                _cache[86] || (_cache[86] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
+                                _cache[87] || (_cache[87] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
                                   _createElementVNode("div", null, [
                                     _createElementVNode("div", { class: "text-subtitle-1 font-weight-medium" }, "决策解释"),
                                     _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "最近一次选种与删种计划；未知 Tracker 数据保持中性")
                                   ])
                                 ], -1)),
-                                _createElementVNode("div", _hoisted_33, [
+                                _createElementVNode("div", _hoisted_34, [
                                   _createElementVNode("div", null, [
-                                    _cache[84] || (_cache[84] = _createElementVNode("strong", null, "选种判断", -1)),
+                                    _cache[85] || (_cache[85] = _createElementVNode("strong", null, "选种判断", -1)),
                                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((strategy.value.selection_explanations || []).slice(0, 8), (item) => {
                                       return (_openBlock(), _createElementBlock("article", {
                                         key: `select-${item.title}`,
@@ -3361,11 +3396,11 @@ return (_ctx, _cache) => {
                                       ]))
                                     }), 128)),
                                     (!strategy.value.selection_explanations?.length)
-                                      ? (_openBlock(), _createElementBlock("div", _hoisted_34, "尚无智能选种记录"))
+                                      ? (_openBlock(), _createElementBlock("div", _hoisted_35, "尚无智能选种记录"))
                                       : _createCommentVNode("", true)
                                   ]),
                                   _createElementVNode("div", null, [
-                                    _cache[85] || (_cache[85] = _createElementVNode("strong", null, "待删候选", -1)),
+                                    _cache[86] || (_cache[86] = _createElementVNode("strong", null, "待删候选", -1)),
                                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList((strategy.value.deletion_explanations || []).slice(0, 8), (item) => {
                                       return (_openBlock(), _createElementBlock("article", {
                                         key: `delete-${item.hash}`,
@@ -3388,10 +3423,10 @@ return (_ctx, _cache) => {
                                       ]))
                                     }), 128)),
                                     (!strategy.value.deletion_explanations?.length)
-                                      ? (_openBlock(), _createElementBlock("div", _hoisted_35, "当前没有通过连续确认的低价值候选"))
+                                      ? (_openBlock(), _createElementBlock("div", _hoisted_36, "当前没有通过连续确认的低价值候选"))
                                       : _createCommentVNode("", true),
                                     (strategy.value.deletion_blockers?.length)
-                                      ? (_openBlock(), _createElementBlock("div", _hoisted_36, " 本轮主要保留/拦截原因：" + _toDisplayString(strategy.value.deletion_blockers.map(item => `${item.label} ${item.count} 个`).join('；')), 1))
+                                      ? (_openBlock(), _createElementBlock("div", _hoisted_37, "详细保护原因已汇总到上方“删种下一步”。"))
                                       : _createCommentVNode("", true),
                                     ((strategy.value.pending_candidates || []).some(item => item.recovered))
                                       ? (_openBlock(), _createBlock(_component_VAlert, {
@@ -3416,10 +3451,10 @@ return (_ctx, _cache) => {
                               class: "brushflow-panel brushflow-torrents app-surface-static"
                             }, {
                               default: _withCtx(() => [
-                                _createElementVNode("header", _hoisted_37, [
+                                _createElementVNode("header", _hoisted_38, [
                                   _createElementVNode("div", null, [
-                                    _createElementVNode("div", _hoisted_38, [
-                                      _cache[87] || (_cache[87] = _createElementVNode("span", { class: "text-subtitle-1 font-weight-medium" }, "托管种子", -1)),
+                                    _createElementVNode("div", _hoisted_39, [
+                                      _cache[88] || (_cache[88] = _createElementVNode("span", { class: "text-subtitle-1 font-weight-medium" }, "托管种子", -1)),
                                       _createVNode(_component_VChip, {
                                         size: "x-small",
                                         variant: "tonal"
@@ -3430,7 +3465,7 @@ return (_ctx, _cache) => {
                                         _: 1
                                       })
                                     ]),
-                                    _cache[88] || (_cache[88] = _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "当前任务独立记录", -1))
+                                    _cache[89] || (_cache[89] = _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "当前任务独立记录", -1))
                                   ]),
                                   _createVNode(_component_VBtnToggle, {
                                     "model-value": torrentState.value,
@@ -3441,19 +3476,19 @@ return (_ctx, _cache) => {
                                   }, {
                                     default: _withCtx(() => [
                                       _createVNode(_component_VBtn, { value: "active" }, {
-                                        default: _withCtx(() => [...(_cache[89] || (_cache[89] = [
+                                        default: _withCtx(() => [...(_cache[90] || (_cache[90] = [
                                           _createTextVNode("活跃", -1)
                                         ]))]),
                                         _: 1
                                       }),
                                       _createVNode(_component_VBtn, { value: "deleted" }, {
-                                        default: _withCtx(() => [...(_cache[90] || (_cache[90] = [
+                                        default: _withCtx(() => [...(_cache[91] || (_cache[91] = [
                                           _createTextVNode("已删除", -1)
                                         ]))]),
                                         _: 1
                                       }),
                                       _createVNode(_component_VBtn, { value: "all" }, {
-                                        default: _withCtx(() => [...(_cache[91] || (_cache[91] = [
+                                        default: _withCtx(() => [...(_cache[92] || (_cache[92] = [
                                           _createTextVNode("全部", -1)
                                         ]))]),
                                         _: 1
@@ -3472,7 +3507,7 @@ return (_ctx, _cache) => {
                                   density: "comfortable"
                                 }, {
                                   "item.title": _withCtx(({ item }) => [
-                                    _createElementVNode("div", _hoisted_39, [
+                                    _createElementVNode("div", _hoisted_40, [
                                       _createElementVNode("strong", null, _toDisplayString(item.title || '未知种子'), 1),
                                       _createElementVNode("span", null, _toDisplayString(item.site_name) + " · " + _toDisplayString(_unref(formatDateTime)((item.time || 0) * 1000)), 1)
                                     ])
@@ -3501,18 +3536,18 @@ return (_ctx, _cache) => {
                                   "item.policy": _withCtx(({ item }) => [
                                     _createTextVNode(_toDisplayString(torrentPolicy(item)), 1)
                                   ]),
-                                  "no-data": _withCtx(() => [...(_cache[92] || (_cache[92] = [
+                                  "no-data": _withCtx(() => [...(_cache[93] || (_cache[93] = [
                                     _createElementVNode("div", { class: "brushflow-table-empty" }, "当前筛选下没有种子记录", -1)
                                   ]))]),
                                   _: 1
                                 }, 8, ["items", "loading"]),
-                                _createElementVNode("div", _hoisted_40, [
+                                _createElementVNode("div", _hoisted_41, [
                                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(torrentData.value.items, (item) => {
                                     return (_openBlock(), _createElementBlock("article", {
                                       key: `${item.task_id}-${item.title}-${item.time}`,
                                       class: "brushflow-mobile-torrent"
                                     }, [
-                                      _createElementVNode("div", _hoisted_41, [
+                                      _createElementVNode("div", _hoisted_42, [
                                         _createElementVNode("strong", null, _toDisplayString(item.title || '未知种子'), 1),
                                         _createVNode(_component_VChip, {
                                           size: "x-small",
@@ -3524,16 +3559,16 @@ return (_ctx, _cache) => {
                                           _: 2
                                         }, 1024)
                                       ]),
-                                      _createElementVNode("div", _hoisted_42, [
+                                      _createElementVNode("div", _hoisted_43, [
                                         _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size)), 1),
                                         _createElementVNode("span", null, "上传 " + _toDisplayString(_unref(formatBytes)(item.uploaded)), 1),
                                         _createElementVNode("span", null, "分享率 " + _toDisplayString(Number(item.ratio || 0).toFixed(2)), 1)
                                       ]),
-                                      _createElementVNode("div", _hoisted_43, _toDisplayString(torrentPolicy(item)), 1)
+                                      _createElementVNode("div", _hoisted_44, _toDisplayString(torrentPolicy(item)), 1)
                                     ]))
                                   }), 128)),
                                   (!torrentData.value.items.length)
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_44, "当前筛选下没有种子记录"))
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_45, "当前筛选下没有种子记录"))
                                     : _createCommentVNode("", true)
                                 ]),
                                 (totalTorrentPages.value > 1)
@@ -3554,10 +3589,10 @@ return (_ctx, _cache) => {
                         }),
                         _createVNode(_component_VWindowItem, { value: "diagnostics" }, {
                           default: _withCtx(() => [
-                            _createElementVNode("div", _hoisted_45, [
+                            _createElementVNode("div", _hoisted_46, [
                               _createElementVNode("div", null, [
-                                _createElementVNode("div", _hoisted_46, _toDisplayString(latestBrushRun.value ? `刷流刷新 #${latestBrushRun.value.id.slice(0, 8)}` : '暂无刷流刷新记录'), 1),
-                                _createElementVNode("div", _hoisted_47, _toDisplayString(latestBrushRun.value ? `${_unref(formatDateTime)(latestBrushRun.value.started_at)} · ${_unref(formatDuration)(latestBrushRun.value.started_at, latestBrushRun.value.finished_at)}` : '执行一次任务后将显示筛选流水线和过滤原因'), 1)
+                                _createElementVNode("div", _hoisted_47, _toDisplayString(latestBrushRun.value ? `刷流刷新 #${latestBrushRun.value.id.slice(0, 8)}` : '暂无刷流刷新记录'), 1),
+                                _createElementVNode("div", _hoisted_48, _toDisplayString(latestBrushRun.value ? `${_unref(formatDateTime)(latestBrushRun.value.started_at)} · ${_unref(formatDuration)(latestBrushRun.value.started_at, latestBrushRun.value.finished_at)}` : '执行一次任务后将显示筛选流水线和过滤原因'), 1)
                               ]),
                               (latestBrushRun.value)
                                 ? (_openBlock(), _createBlock(_component_VChip, {
@@ -3572,24 +3607,24 @@ return (_ctx, _cache) => {
                                   }, 8, ["color"]))
                                 : _createCommentVNode("", true)
                             ]),
-                            _createElementVNode("div", _hoisted_48, [
+                            _createElementVNode("div", _hoisted_49, [
                               _createVNode(_component_VSheet, {
                                 tag: "section",
                                 class: "brushflow-panel app-surface-static"
                               }, {
                                 default: _withCtx(() => [
-                                  _cache[93] || (_cache[93] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
+                                  _cache[94] || (_cache[94] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
                                     _createElementVNode("div", null, [
                                       _createElementVNode("div", { class: "text-subtitle-1 font-weight-medium" }, "选种流水线"),
                                       _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "本轮候选在各阶段的剩余数量")
                                     ])
                                   ], -1)),
-                                  _createElementVNode("ol", _hoisted_49, [
+                                  _createElementVNode("ol", _hoisted_50, [
                                     (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(pipelineStages.value, (stage, index) => {
                                       return (_openBlock(), _createElementBlock("li", {
                                         key: stage.title
                                       }, [
-                                        _createElementVNode("span", _hoisted_50, _toDisplayString(index + 1), 1),
+                                        _createElementVNode("span", _hoisted_51, _toDisplayString(index + 1), 1),
                                         _createElementVNode("div", null, [
                                           _createElementVNode("strong", null, _toDisplayString(stage.title), 1),
                                           _createElementVNode("span", null, _toDisplayString(stage.detail), 1)
@@ -3614,14 +3649,14 @@ return (_ctx, _cache) => {
                                 class: "brushflow-panel app-surface-static"
                               }, {
                                 default: _withCtx(() => [
-                                  _cache[94] || (_cache[94] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
+                                  _cache[95] || (_cache[95] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
                                     _createElementVNode("div", null, [
                                       _createElementVNode("div", { class: "text-subtitle-1 font-weight-medium" }, "过滤原因"),
                                       _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "本轮未进入下载器的候选分布")
                                     ])
                                   ], -1)),
                                   (reasonEntries.value.length)
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_51, [
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_52, [
                                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(reasonEntries.value, (item) => {
                                           return (_openBlock(), _createElementBlock("div", {
                                             key: item.label,
@@ -3631,7 +3666,7 @@ return (_ctx, _cache) => {
                                               _createElementVNode("span", null, _toDisplayString(item.label), 1),
                                               _createElementVNode("strong", null, _toDisplayString(item.count), 1)
                                             ]),
-                                            _createElementVNode("span", _hoisted_52, [
+                                            _createElementVNode("span", _hoisted_53, [
                                               _createElementVNode("i", {
                                                 style: _normalizeStyle({ width: `${(item.count / maxReasonCount.value) * 100}%` })
                                               }, null, 4)
@@ -3639,7 +3674,7 @@ return (_ctx, _cache) => {
                                           ]))
                                         }), 128))
                                       ]))
-                                    : (_openBlock(), _createElementBlock("div", _hoisted_53, "本轮没有记录过滤原因"))
+                                    : (_openBlock(), _createElementBlock("div", _hoisted_54, "本轮没有记录过滤原因"))
                                 ]),
                                 _: 1
                               })
@@ -3649,13 +3684,13 @@ return (_ctx, _cache) => {
                               class: "brushflow-panel app-surface-static"
                             }, {
                               default: _withCtx(() => [
-                                _cache[95] || (_cache[95] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
+                                _cache[96] || (_cache[96] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
                                   _createElementVNode("div", null, [
                                     _createElementVNode("div", { class: "text-subtitle-1 font-weight-medium" }, "最近事件"),
                                     _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "刷流刷新与种子检查独立记录")
                                   ])
                                 ], -1)),
-                                _createElementVNode("div", _hoisted_54, [
+                                _createElementVNode("div", _hoisted_55, [
                                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(taskRuns.value, (run) => {
                                     return (_openBlock(), _createElementBlock("article", {
                                       key: run.id
@@ -3668,13 +3703,13 @@ return (_ctx, _cache) => {
                                         _createElementVNode("strong", null, _toDisplayString(run.kind === 'brush' ? '刷流刷新' : '种子检查'), 1),
                                         _createElementVNode("span", null, _toDisplayString(_unref(formatDateTime)(run.started_at)) + " · " + _toDisplayString(_unref(formatDuration)(run.started_at, run.finished_at)) + " · " + _toDisplayString(run.kind === 'brush' ? `新增 ${run.added_count || 0}，过滤 ${run.filtered_count || 0}` : `活跃 ${run.active_count || 0}，删除 ${run.deleted_count || 0}`), 1),
                                         (run.error)
-                                          ? (_openBlock(), _createElementBlock("span", _hoisted_55, _toDisplayString(run.error), 1))
+                                          ? (_openBlock(), _createElementBlock("span", _hoisted_56, _toDisplayString(run.error), 1))
                                           : _createCommentVNode("", true)
                                       ])
                                     ]))
                                   }), 128)),
                                   (!taskRuns.value.length)
-                                    ? (_openBlock(), _createElementBlock("div", _hoisted_56, "暂无运行事件"))
+                                    ? (_openBlock(), _createElementBlock("div", _hoisted_57, "暂无运行事件"))
                                     : _createCommentVNode("", true)
                                 ])
                               ]),
@@ -3685,69 +3720,69 @@ return (_ctx, _cache) => {
                         }),
                         _createVNode(_component_VWindowItem, { value: "config" }, {
                           default: _withCtx(() => [
-                            _createElementVNode("div", _hoisted_57, [
+                            _createElementVNode("div", _hoisted_58, [
                               _createVNode(_component_VSheet, {
                                 tag: "section",
                                 class: "brushflow-panel app-surface-static"
                               }, {
                                 default: _withCtx(() => [
-                                  _cache[109] || (_cache[109] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
+                                  _cache[110] || (_cache[110] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
                                     _createElementVNode("div", null, [
                                       _createElementVNode("div", { class: "text-subtitle-1 font-weight-medium" }, "任务规则"),
                                       _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "当前服务端生效配置")
                                     ])
                                   ], -1)),
-                                  _createElementVNode("dl", _hoisted_58, [
+                                  _createElementVNode("dl", _hoisted_59, [
                                     _createElementVNode("div", null, [
-                                      _cache[96] || (_cache[96] = _createElementVNode("dt", null, "任务状态", -1)),
+                                      _cache[97] || (_cache[97] = _createElementVNode("dt", null, "任务状态", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(selectedTask.value.enabled ? '启用' : '暂停'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[97] || (_cache[97] = _createElementVNode("dt", null, "通知", -1)),
+                                      _cache[98] || (_cache[98] = _createElementVNode("dt", null, "通知", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.notify ? '发送' : '关闭'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[98] || (_cache[98] = _createElementVNode("dt", null, "站点", -1)),
+                                      _cache[99] || (_cache[99] = _createElementVNode("dt", null, "站点", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(selectedTask.value.site_name), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[99] || (_cache[99] = _createElementVNode("dt", null, "下载器", -1)),
+                                      _cache[100] || (_cache[100] = _createElementVNode("dt", null, "下载器", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(selectedTask.value.downloader), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[100] || (_cache[100] = _createElementVNode("dt", null, "种子大小", -1)),
+                                      _cache[101] || (_cache[101] = _createElementVNode("dt", null, "种子大小", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.size || '不限'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[101] || (_cache[101] = _createElementVNode("dt", null, "做种人数", -1)),
+                                      _cache[102] || (_cache[102] = _createElementVNode("dt", null, "做种人数", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.seeder || '不限'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[102] || (_cache[102] = _createElementVNode("dt", null, "发布时间", -1)),
+                                      _cache[103] || (_cache[103] = _createElementVNode("dt", null, "发布时间", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.pubtime ? `${taskConfig.value.pubtime} 分钟` : '不限'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[103] || (_cache[103] = _createElementVNode("dt", null, "排除 H&R", -1)),
+                                      _cache[104] || (_cache[104] = _createElementVNode("dt", null, "排除 H&R", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.hr === 'yes' ? '是' : '否'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[104] || (_cache[104] = _createElementVNode("dt", null, "包含规则", -1)),
+                                      _cache[105] || (_cache[105] = _createElementVNode("dt", null, "包含规则", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.include || '无'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[105] || (_cache[105] = _createElementVNode("dt", null, "排除规则", -1)),
+                                      _cache[106] || (_cache[106] = _createElementVNode("dt", null, "排除规则", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.exclude || '无'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[106] || (_cache[106] = _createElementVNode("dt", null, "保种上限", -1)),
+                                      _cache[107] || (_cache[107] = _createElementVNode("dt", null, "保种上限", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.disksize ? `${taskConfig.value.disksize} GB` : '不限'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[107] || (_cache[107] = _createElementVNode("dt", null, "目标分享率", -1)),
+                                      _cache[108] || (_cache[108] = _createElementVNode("dt", null, "目标分享率", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.site_ratio_control ? Number(taskConfig.value.site_ratio_target || 0).toFixed(2) : '关闭'), 1)
                                     ]),
                                     _createElementVNode("div", null, [
-                                      _cache[108] || (_cache[108] = _createElementVNode("dt", null, "归档天数", -1)),
+                                      _cache[109] || (_cache[109] = _createElementVNode("dt", null, "归档天数", -1)),
                                       _createElementVNode("dd", null, _toDisplayString(taskConfig.value.auto_archive_days || '不自动归档'), 1)
                                     ])
                                   ])
@@ -3759,23 +3794,23 @@ return (_ctx, _cache) => {
                                 class: "brushflow-panel app-surface-static"
                               }, {
                                 default: _withCtx(() => [
-                                  _cache[116] || (_cache[116] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
+                                  _cache[117] || (_cache[117] = _createElementVNode("header", { class: "brushflow-panel__head" }, [
                                     _createElementVNode("div", null, [
                                       _createElementVNode("div", { class: "text-subtitle-1 font-weight-medium" }, "任务数据"),
                                       _createElementVNode("div", { class: "text-body-2 text-medium-emphasis" }, "以下操作只影响当前任务")
                                     ])
                                   ], -1)),
-                                  _createElementVNode("div", _hoisted_59, [
+                                  _createElementVNode("div", _hoisted_60, [
                                     _createElementVNode("div", null, [
-                                      _cache[111] || (_cache[111] = _createElementVNode("strong", null, "清除统计与记录", -1)),
-                                      _cache[112] || (_cache[112] = _createElementVNode("span", null, "下载器中的任务标签种子会在下次检查时重新纳入", -1)),
+                                      _cache[112] || (_cache[112] = _createElementVNode("strong", null, "清除统计与记录", -1)),
+                                      _cache[113] || (_cache[113] = _createElementVNode("span", null, "下载器中的任务标签种子会在下次检查时重新纳入", -1)),
                                       _createVNode(_component_VBtn, {
                                         color: "warning",
                                         variant: "tonal",
                                         "prepend-icon": "mdi-eraser",
                                         onClick: _cache[25] || (_cache[25] = $event => (clearDialog.value = true))
                                       }, {
-                                        default: _withCtx(() => [...(_cache[110] || (_cache[110] = [
+                                        default: _withCtx(() => [...(_cache[111] || (_cache[111] = [
                                           _createTextVNode("清除数据", -1)
                                         ]))]),
                                         _: 1
@@ -3783,15 +3818,15 @@ return (_ctx, _cache) => {
                                     ]),
                                     _createVNode(_component_VDivider),
                                     _createElementVNode("div", null, [
-                                      _cache[114] || (_cache[114] = _createElementVNode("strong", null, "删除任务", -1)),
-                                      _cache[115] || (_cache[115] = _createElementVNode("span", null, "存在活跃种子时后端会拒绝删除，避免留下失管任务", -1)),
+                                      _cache[115] || (_cache[115] = _createElementVNode("strong", null, "删除任务", -1)),
+                                      _cache[116] || (_cache[116] = _createElementVNode("span", null, "存在活跃种子时后端会拒绝删除，避免留下失管任务", -1)),
                                       _createVNode(_component_VBtn, {
                                         color: "error",
                                         variant: "tonal",
                                         "prepend-icon": "mdi-delete-outline",
                                         onClick: _cache[26] || (_cache[26] = $event => (deleteDialog.value = true))
                                       }, {
-                                        default: _withCtx(() => [...(_cache[113] || (_cache[113] = [
+                                        default: _withCtx(() => [...(_cache[114] || (_cache[114] = [
                                           _createTextVNode("删除任务", -1)
                                         ]))]),
                                         _: 1
@@ -3843,7 +3878,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   onClick: _cache[29] || (_cache[29] = $event => (deleteDialog.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[117] || (_cache[117] = [
+                  default: _withCtx(() => [...(_cache[118] || (_cache[118] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -3854,7 +3889,7 @@ return (_ctx, _cache) => {
                   loading: saving.value,
                   onClick: confirmDeleteTask
                 }, {
-                  default: _withCtx(() => [...(_cache[118] || (_cache[118] = [
+                  default: _withCtx(() => [...(_cache[119] || (_cache[119] = [
                     _createTextVNode("删除", -1)
                   ]))]),
                   _: 1
@@ -3877,7 +3912,7 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCard, { title: "清除任务数据" }, {
           default: _withCtx(() => [
             _createVNode(_component_VCardText, null, {
-              default: _withCtx(() => [...(_cache[119] || (_cache[119] = [
+              default: _withCtx(() => [...(_cache[120] || (_cache[120] = [
                 _createTextVNode("将清除当前任务的统计、运行诊断、托管和归档记录，下载器内的种子与文件不会删除。", -1)
               ]))]),
               _: 1
@@ -3889,7 +3924,7 @@ return (_ctx, _cache) => {
                   variant: "text",
                   onClick: _cache[31] || (_cache[31] = $event => (clearDialog.value = false))
                 }, {
-                  default: _withCtx(() => [...(_cache[120] || (_cache[120] = [
+                  default: _withCtx(() => [...(_cache[121] || (_cache[121] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -3900,7 +3935,7 @@ return (_ctx, _cache) => {
                   loading: saving.value,
                   onClick: confirmClearTask
                 }, {
-                  default: _withCtx(() => [...(_cache[121] || (_cache[121] = [
+                  default: _withCtx(() => [...(_cache[122] || (_cache[122] = [
                     _createTextVNode("清除", -1)
                   ]))]),
                   _: 1
@@ -3919,6 +3954,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const BrushFlowWorkbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5e5f4570"]]);
+const BrushFlowWorkbench = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-31789d96"]]);
 
 export { BrushFlowWorkbench as B };

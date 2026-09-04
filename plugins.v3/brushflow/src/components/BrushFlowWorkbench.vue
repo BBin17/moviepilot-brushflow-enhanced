@@ -77,11 +77,38 @@ const taskConfig = computed(() => taskDetail.value?.task || {})
 const taskRuns = computed(() => taskDetail.value?.runs || [])
 const strategy = computed(() => taskDetail.value?.strategy || selectedTask.value?.strategy || {})
 const downloadHealth = computed(() => strategy.value.download_health || {})
+const capacityLimitBytes = computed(() => {
+  const engineCapacity = Number(strategy.value.capacity_bytes || 0)
+  if (engineCapacity > 0) return engineCapacity
+  return Number(taskConfig.value.disksize || 0) * 1024 ** 3
+})
+const capacityUsagePercent = computed(() => {
+  if (!capacityLimitBytes.value) return 0
+  return (Number(selectedTask.value?.seeding_size || 0) * 100) / capacityLimitBytes.value
+})
+const capacityCaption = computed(() => {
+  if (!capacityLimitBytes.value) return '未设置任务容量'
+  return `上限 ${formatBytes(capacityLimitBytes.value)} · ${Math.round(capacityUsagePercent.value)}% 已用`
+})
+const readinessTone = computed(() => {
+  const readiness = strategy.value.deletion_readiness?.state
+  if (readiness === 'planned' || readiness === 'at_target') return 'success'
+  if (readiness === 'shadow' || readiness === 'waiting') return 'info'
+  return 'warning'
+})
+
+function formatBlockerSummary(blockers) {
+  return (blockers || [])
+    .slice(0, 3)
+    .map(item => `${item.label} ${item.count} 个${item.bytes ? ` / ${formatBytes(item.bytes)}` : ''}`)
+    .join('；')
+}
+
 const latestBrushRun = computed(() => taskRuns.value.find(item => item.kind === 'brush') || null)
 const torrentData = computed(() => taskDetail.value?.torrents || { items: [], total: 0, page: 1, page_size: 50 })
 const totalTorrentPages = computed(() => Math.max(Math.ceil(torrentData.value.total / torrentData.value.page_size), 1))
 const seedingPercent = computed(() => {
-  const limit = Number(taskConfig.value.disksize || 0) * 1024 ** 3
+  const limit = capacityLimitBytes.value
   if (!limit) return 0
   return Math.min(Math.round((Number(selectedTask.value?.seeding_size || 0) * 100) / limit), 100)
 })
@@ -723,8 +750,8 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                 <VSheet class="brushflow-stat app-surface-static">
                   <span>当前做种</span>
                   <strong>{{ formatBytes(selectedTask.seeding_size) }}</strong>
-                  <small>{{ taskConfig.disksize ? `上限 ${taskConfig.disksize} GB` : '未设置体积上限' }}</small>
-                  <VProgressLinear v-if="taskConfig.disksize" :model-value="seedingPercent" height="4" color="primary" />
+                  <small>{{ capacityCaption }}</small>
+                  <VProgressLinear v-if="capacityLimitBytes" :model-value="seedingPercent" height="4" :color="capacityUsagePercent > 100 ? 'error' : 'primary'" />
                 </VSheet>
                 <VSheet class="brushflow-stat app-surface-static">
                   <span>{{ taskConfig.site_ratio_control ? '站点分享率' : '最近刷新' }}</span>
@@ -817,16 +844,19 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                   <div><span>有效样本</span><strong>{{ strategy.learning_sample_count || 0 }}</strong></div>
                   <div><span>误判率</span><strong>{{ (Number(strategy.false_positive_rate || 0) * 100).toFixed(1) }}%</strong></div>
                   <div><span>容量闭环</span><strong>{{ strategy.capacity_trigger_percent || 90 }}% → {{ strategy.capacity_target_percent || 85 }}%</strong></div>
-                  <div><span>待回收容量</span><strong>{{ formatBytes(strategy.capacity_debt_bytes || 0) }}</strong></div>
+                  <div><span>距离容量目标</span><strong>{{ formatBytes(strategy.capacity_debt_bytes || 0) }}</strong></div>
                   <div><span>超额恢复</span><strong>{{ strategy.recovery_active ? `运行中 · ${strategy.recovery_trigger_percent || 125}%` : '未触发' }}</strong></div>
-                  <div><span>预计释放</span><strong>{{ formatBytes(strategy.estimated_freed_bytes || 0) }}</strong></div>
+                  <div><span>本轮计划释放</span><strong>{{ formatBytes(strategy.estimated_freed_bytes || 0) }}</strong></div>
                   <div><span>上传收益</span><strong>{{ Number(strategy.uploaded_gb_per_day || 0).toFixed(2) }} GB/天</strong></div>
                   <div><span>单位容量收益</span><strong>{{ (Number(strategy.unit_capacity_yield_per_day || 0) * 100).toFixed(3) }}%/天</strong></div>
                   <div><span>实际释放（24h）</span><strong>{{ formatBytes(strategy.actual_freed_bytes_24h || 0) }}</strong></div>
                   <div><span>下载健康</span><strong>{{ downloadHealth.stalled_count || 0 }} 卡住 · {{ downloadHealth.slow_count || 0 }} 低速</strong></div>
                 </div>
-                <VAlert v-if="strategy.recovery_active" type="warning" variant="tonal" density="compact">
-                  当前做种超过任务容量 {{ strategy.recovery_trigger_percent || 125 }}%，已进入超额恢复模式：低价值大种会获得更高容量成本，单轮/单日容量配额按恢复设置放宽；H&R、最低保种、真实上传与活动连接仍为硬保护。
+                <VAlert v-if="strategy.deletion_readiness?.message" :type="readinessTone" variant="tonal" density="compact">
+                  <strong>删种下一步：</strong>{{ strategy.deletion_readiness.message }}
+                  <div v-if="strategy.deletion_blockers?.length" class="text-caption mt-1">
+                    主要保护：{{ formatBlockerSummary(strategy.deletion_blockers) }}
+                  </div>
                 </VAlert>
                 <VAlert
                   v-if="downloadHealth.stalled_count || downloadHealth.slow_count || downloadHealth.queued_count || downloadHealth.error_count"
@@ -865,9 +895,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                       <VChip size="x-small" color="warning" variant="tonal">{{ item.score }} 分</VChip>
                     </article>
                     <div v-if="!strategy.deletion_explanations?.length" class="brushflow-table-empty">当前没有通过连续确认的低价值候选</div>
-                    <div v-if="strategy.deletion_blockers?.length" class="text-caption text-medium-emphasis mt-2">
-                      本轮主要保留/拦截原因：{{ strategy.deletion_blockers.map(item => `${item.label} ${item.count} 个`).join('；') }}
-                    </div>
+                    <div v-if="strategy.deletion_blockers?.length" class="text-caption text-medium-emphasis mt-2">详细保护原因已汇总到上方“删种下一步”。</div>
                     <VAlert
                       v-if="(strategy.pending_candidates || []).some(item => item.recovered)"
                       type="warning"

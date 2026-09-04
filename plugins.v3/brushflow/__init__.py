@@ -1991,14 +1991,34 @@ class BrushFlow(_PluginBase):
             and capacity
             and capacity_ratio >= float(task.smart_recovery_trigger_percent or 125) / 100
         )
+        torrent_sizes = {
+            str(torrent_hash): float(
+                torrent.get("size") or torrent.get("total_size") or 0
+            )
+            for torrent_hash, torrent in torrents.items()
+            if not torrent.get("deleted")
+        }
         blocker_counts: Dict[str, int] = {}
+        blocker_bytes: Dict[str, float] = {}
+        eligible_count = 0
+        eligible_bytes = 0.0
         for row in (latest_deletion or {}).get("evaluated", []):
+            torrent_hash = str(row.get("hash") or "")
+            torrent_size = float(row.get("size") or torrent_sizes.get(torrent_hash) or 0)
             if row.get("action") == "candidate":
+                eligible_count += 1
+                eligible_bytes += torrent_size
                 continue
             for code in row.get("reasons") or []:
                 blocker_counts[code] = blocker_counts.get(code, 0) + 1
+                blocker_bytes[code] = blocker_bytes.get(code, 0.0) + torrent_size
         deletion_blockers = [
-            {"code": code, "label": self._smart_reason_label(code), "count": count}
+            {
+                "code": code,
+                "label": self._smart_reason_label(code),
+                "count": count,
+                "bytes": blocker_bytes.get(code, 0.0),
+            }
             for code, count in sorted(blocker_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
         ]
         shadow_remaining = max(float(task.smart_shadow_until or 0) - now, 0.0)
@@ -2016,6 +2036,63 @@ class BrushFlow(_PluginBase):
             reverse=True,
         )
         false_positive_count = sum(1 for row in candidate_rows if row.get("recovered"))
+        deletion_reason_codes = list((latest_deletion or {}).get("reason_codes") or [])
+        planned_count = len((latest_deletion or {}).get("selected") or [])
+        planned_bytes = float((latest_deletion or {}).get("estimated_freed_bytes") or 0)
+        if not task.smart_enabled:
+            readiness = {
+                "state": "disabled",
+                "message": "智能删种未启用，当前仅保留原有删种规则。",
+            }
+        elif not capacity:
+            readiness = {
+                "state": "capacity_unset",
+                "message": "未设置任务容量，智能删种不会因空间压力自动清理。",
+            }
+        elif current_size <= (capacity_target or current_size):
+            readiness = {
+                "state": "at_target",
+                "message": "容量已在目标范围内，当前无需删种。",
+            }
+        elif planned_count:
+            if mode == "shadow":
+                plan_outcome = "影子期仅观察，不会实际删除。"
+            elif mode == "paused":
+                plan_outcome = "自动删除已暂停。"
+            else:
+                plan_outcome = "将按硬安全线复核后执行。"
+            readiness = {
+                "state": "shadow" if mode == "shadow" else "paused" if mode == "paused" else "planned",
+                "message": (
+                    f"已找到 {planned_count} 个低价值候选，预计释放 {self.__bytes_to_gb(planned_bytes):.1f} GB；"
+                    f"{plan_outcome}"
+                ),
+                "candidate_count": planned_count,
+                "candidate_bytes": planned_bytes,
+            }
+        elif eligible_count and any(
+            code in deletion_reason_codes
+            for code in ("byte_cap", "daily_count_cap", "run_count_cap")
+        ):
+            readiness = {
+                "state": "quota",
+                "message": "已有低价值候选，但本轮或今日清理额度已用完；策略会在额度恢复后继续处理。",
+                "candidate_count": eligible_count,
+                "candidate_bytes": eligible_bytes,
+            }
+        elif eligible_count:
+            readiness = {
+                "state": "waiting",
+                "message": "已有低价值候选，正在等待下一次连续确认或容量额度。",
+                "candidate_count": eligible_count,
+                "candidate_bytes": eligible_bytes,
+            }
+        else:
+            main_blocker = deletion_blockers[0]["label"] if deletion_blockers else "安全线和连续确认"
+            readiness = {
+                "state": "blocked",
+                "message": f"暂时没有可安全删除的种子，主要受“{main_blocker}”保护。",
+            }
         state.update(
             {
                 "engine_version": "7.3-compat" if task.smart_engine == "legacy_7_3" else __version__,
@@ -2044,6 +2121,9 @@ class BrushFlow(_PluginBase):
                 "recovery_run_capacity_percent": task.smart_recovery_max_delete_capacity_percent_run,
                 "recovery_day_capacity_percent": task.smart_recovery_max_delete_capacity_percent_day,
                 "estimated_freed_bytes": (latest_deletion or {}).get("estimated_freed_bytes", 0),
+                "deletion_readiness": readiness,
+                "eligible_candidate_count": eligible_count,
+                "eligible_candidate_bytes": eligible_bytes,
                 "uploaded_gb_per_day": round(uploaded_24h / 1024**3, 3),
                 "unit_capacity_yield_per_day": round(uploaded_24h / current_size, 6) if current_size else 0.0,
                 "actual_freed_bytes_24h": actual_freed_24h,
@@ -2051,7 +2131,7 @@ class BrushFlow(_PluginBase):
                 "selection_explanations": (latest_selection or {}).get("decisions", []),
                 "deletion_explanations": (latest_deletion or {}).get("selected", []),
                 "deletion_blockers": deletion_blockers,
-                "deletion_reason_codes": (latest_deletion or {}).get("reason_codes", []),
+                "deletion_reason_codes": deletion_reason_codes,
                 "pending_candidates": candidate_rows[:50],
                 "audit_count": len(audit),
             }
@@ -3555,6 +3635,8 @@ class BrushFlow(_PluginBase):
                 "evaluated": [
                     {
                         "hash": result.torrent_hash,
+                        "title": torrent_tasks.get(result.torrent_hash, {}).get("title"),
+                        "size": torrent_tasks.get(result.torrent_hash, {}).get("size"),
                         "action": result.action,
                         "score": result.score,
                         "reasons": list(result.reason_codes),

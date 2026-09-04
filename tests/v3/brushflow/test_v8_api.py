@@ -101,3 +101,49 @@ def test_false_positive_gate_auto_extends_shadow():
     assert state["mode"] == "shadow"
     assert task.smart_shadow_until > time.time()
     assert task.smart_shadow_extensions == 1
+
+
+def test_strategy_status_summarizes_capacity_and_protection():
+    gib = 1024**3
+    task = smart_task(disksize=100, smart_shadow_until=None)
+    plugin = make_plugin(task)
+    store = {
+        "strategy_state": {},
+        "learning_state": {},
+        "smart_candidates": {},
+        "smart_deletions": [],
+        "decision_audit": [
+            {
+                "kind": "deletion",
+                "evaluated": [
+                    {
+                        "hash": "protected",
+                        "size": 10 * gib,
+                        "action": "keep",
+                        "reasons": ["min_seed_time"],
+                    }
+                ],
+                "selected": [],
+                "reason_codes": ["no_low_value_candidate"],
+            }
+        ],
+        "torrents": {
+            "protected": {"size": 10 * gib},
+            "other": {"size": 120 * gib},
+        },
+    }
+    plugin._get_task_data = lambda task_id, name: store.get(name)
+
+    strategy = plugin._build_strategy_status(task.id)
+
+    assert strategy["capacity_bytes"] == 100 * gib
+    assert strategy["capacity_debt_bytes"] == 45 * gib
+    assert strategy["deletion_readiness"]["state"] == "blocked"
+    assert strategy["deletion_blockers"] == [
+        {
+            "code": "min_seed_time",
+            "label": "尚未达到站点最低保种时长",
+            "count": 1,
+            "bytes": 10 * gib,
+        }
+    ]
