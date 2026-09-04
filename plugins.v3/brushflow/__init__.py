@@ -1477,6 +1477,13 @@ class BrushFlow(_PluginBase):
         torrents = self._get_task_data(task_id, "torrents") or {}
         history = self._get_task_data(task_id, "runs") or []
         runtime = dict(self._runtime.get(task_id, {}))
+        cleanup_progress = runtime.get("cleanup_progress")
+        if (
+            cleanup_progress
+            and cleanup_progress.get("state") in {"completed", "failed"}
+            and float(cleanup_progress.get("display_until") or 0) <= time.time()
+        ):
+            cleanup_progress = None
         site_ratio = self._build_site_ratio_status(task, site_user_data_by_domain)
         if not self.get_state():
             display_state = "disabled"
@@ -1508,7 +1515,7 @@ class BrushFlow(_PluginBase):
             "state": display_state,
             "operation": runtime.get("operation"),
             "last_error": runtime.get("last_error"),
-            "cleanup_progress": runtime.get("cleanup_progress"),
+            "cleanup_progress": cleanup_progress,
             "next_run_at": self._next_run_at(task, history),
             "last_run": history[0] if history else None,
             "statistic": statistic,
@@ -2485,6 +2492,7 @@ class BrushFlow(_PluginBase):
                     percent=100,
                     error=str(err),
                     finished_at=time.time(),
+                    display_until=time.time() + 8,
                 )
             logger.error(f"刷流任务 [{task.name}] 检查失败：{str(err)}")
         finally:
@@ -2511,6 +2519,7 @@ class BrushFlow(_PluginBase):
                         else str(report.get("deletion_message") or "本轮没有种子通过最终安全复核")
                     ),
                     finished_at=time.time(),
+                    display_until=time.time() + 8,
                 )
             elif (self._runtime.get(task.id, {}).get("cleanup_progress") or {}).get("state") != "failed":
                 self._update_cleanup_progress(
@@ -2520,6 +2529,7 @@ class BrushFlow(_PluginBase):
                     percent=100,
                     error=str(report.get("error") or "下载器不可用，请检查连接后重试"),
                     finished_at=time.time(),
+                    display_until=time.time() + 8,
                 )
         self._set_runtime(task.id, state="idle", operation=None)
 
