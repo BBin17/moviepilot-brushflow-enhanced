@@ -11,6 +11,9 @@ assert.equal(taskDefaults.smart_selection_min_score, 30)
 assert.equal(taskDefaults.smart_allow_proactive_delete, false)
 assert.equal(taskDefaults.smart_capacity_trigger_percent, 90)
 assert.equal(taskDefaults.smart_capacity_target_percent, 85)
+assert.equal(taskDefaults.smart_recovery_enabled, true)
+assert.equal(taskDefaults.smart_recovery_trigger_percent, 125)
+assert.equal(taskDefaults.smart_recovery_max_delete_capacity_percent_day, 40)
 assert.equal(taskDefaults.delete_files, true)
 assert.deepEqual(
   applySmartProfile({}, 'conservative').smart_candidate_confirmations,

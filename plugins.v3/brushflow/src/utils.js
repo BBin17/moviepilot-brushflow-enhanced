@@ -61,6 +61,11 @@ export const taskDefaults = {
   smart_max_delete_capacity_percent_day: 8,
   smart_max_delete_gb_per_run: null,
   smart_max_delete_gb_per_day: null,
+  smart_recovery_enabled: true,
+  smart_recovery_trigger_percent: 125,
+  smart_recovery_max_delete_percent_day: 20,
+  smart_recovery_max_delete_capacity_percent_run: 20,
+  smart_recovery_max_delete_capacity_percent_day: 40,
   smart_allow_proactive_delete: false,
   smart_required_conditions: false,
   smart_shadow_until: null,
@@ -101,6 +106,11 @@ export const smartPresets = {
     smart_candidate_confirmation_minutes: 60,
     smart_score_threshold: 35,
     smart_max_delete_capacity_percent_day: 4,
+    smart_recovery_enabled: true,
+    smart_recovery_trigger_percent: 125,
+    smart_recovery_max_delete_percent_day: 20,
+    smart_recovery_max_delete_capacity_percent_run: 20,
+    smart_recovery_max_delete_capacity_percent_day: 40,
   },
   balanced: {
     smart_selection_max_add_per_run: 5,
@@ -110,6 +120,11 @@ export const smartPresets = {
     smart_candidate_confirmation_minutes: 30,
     smart_score_threshold: 40,
     smart_max_delete_capacity_percent_day: 8,
+    smart_recovery_enabled: true,
+    smart_recovery_trigger_percent: 125,
+    smart_recovery_max_delete_percent_day: 20,
+    smart_recovery_max_delete_capacity_percent_run: 20,
+    smart_recovery_max_delete_capacity_percent_day: 40,
   },
   aggressive: {
     smart_selection_max_add_per_run: 8,
@@ -119,6 +134,11 @@ export const smartPresets = {
     smart_candidate_confirmation_minutes: 15,
     smart_score_threshold: 48,
     smart_max_delete_capacity_percent_day: 15,
+    smart_recovery_enabled: true,
+    smart_recovery_trigger_percent: 125,
+    smart_recovery_max_delete_percent_day: 20,
+    smart_recovery_max_delete_capacity_percent_run: 20,
+    smart_recovery_max_delete_capacity_percent_day: 40,
   },
 }
 
@@ -204,6 +224,10 @@ export function normalizeTask(task) {
     'smart_capacity_target_percent',
     'smart_max_delete_capacity_percent_run',
     'smart_max_delete_capacity_percent_day',
+    'smart_recovery_trigger_percent',
+    'smart_recovery_max_delete_percent_day',
+    'smart_recovery_max_delete_capacity_percent_run',
+    'smart_recovery_max_delete_capacity_percent_day',
   ].forEach(key => {
     const value = Number(result[key])
     if (Number.isFinite(value)) result[key] = value

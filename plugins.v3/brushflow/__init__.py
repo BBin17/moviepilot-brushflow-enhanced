@@ -137,6 +137,11 @@ TASK_CONFIG_FIELDS = (
     "smart_max_delete_capacity_percent_day",
     "smart_max_delete_gb_per_run",
     "smart_max_delete_gb_per_day",
+    "smart_recovery_enabled",
+    "smart_recovery_trigger_percent",
+    "smart_recovery_max_delete_percent_day",
+    "smart_recovery_max_delete_capacity_percent_run",
+    "smart_recovery_max_delete_capacity_percent_day",
     "smart_allow_proactive_delete",
     "smart_required_conditions",
     "smart_shadow_until",
@@ -216,6 +221,11 @@ SMART_PRESETS = {
         "smart_candidate_confirmation_minutes": 60,
         "smart_score_threshold": 35,
         "smart_max_delete_capacity_percent_day": 4,
+        "smart_recovery_enabled": True,
+        "smart_recovery_trigger_percent": 125,
+        "smart_recovery_max_delete_percent_day": 20,
+        "smart_recovery_max_delete_capacity_percent_run": 20,
+        "smart_recovery_max_delete_capacity_percent_day": 40,
     },
     "balanced": {
         "smart_selection_max_add_per_run": 5,
@@ -225,6 +235,11 @@ SMART_PRESETS = {
         "smart_candidate_confirmation_minutes": 30,
         "smart_score_threshold": 40,
         "smart_max_delete_capacity_percent_day": 8,
+        "smart_recovery_enabled": True,
+        "smart_recovery_trigger_percent": 125,
+        "smart_recovery_max_delete_percent_day": 20,
+        "smart_recovery_max_delete_capacity_percent_run": 20,
+        "smart_recovery_max_delete_capacity_percent_day": 40,
     },
     "aggressive": {
         "smart_selection_max_add_per_run": 8,
@@ -234,6 +249,11 @@ SMART_PRESETS = {
         "smart_candidate_confirmation_minutes": 15,
         "smart_score_threshold": 48,
         "smart_max_delete_capacity_percent_day": 15,
+        "smart_recovery_enabled": True,
+        "smart_recovery_trigger_percent": 125,
+        "smart_recovery_max_delete_percent_day": 20,
+        "smart_recovery_max_delete_capacity_percent_run": 20,
+        "smart_recovery_max_delete_capacity_percent_day": 40,
     },
 }
 
@@ -255,6 +275,11 @@ SMART_ADVANCED_FIELDS = (
     "smart_max_delete_capacity_percent_day",
     "smart_max_delete_gb_per_run",
     "smart_max_delete_gb_per_day",
+    "smart_recovery_enabled",
+    "smart_recovery_trigger_percent",
+    "smart_recovery_max_delete_percent_day",
+    "smart_recovery_max_delete_capacity_percent_run",
+    "smart_recovery_max_delete_capacity_percent_day",
     "smart_allow_proactive_delete",
     "smart_required_conditions",
 )
@@ -388,6 +413,19 @@ class BrushTaskConfig:
         )
         self.smart_max_delete_gb_per_day = self._parse_number(
             config.get("smart_max_delete_gb_per_day")
+        )
+        self.smart_recovery_enabled = bool(config.get("smart_recovery_enabled", True))
+        self.smart_recovery_trigger_percent = float(
+            self._parse_number(config.get("smart_recovery_trigger_percent", 125)) or 125
+        )
+        self.smart_recovery_max_delete_percent_day = float(
+            self._parse_number(config.get("smart_recovery_max_delete_percent_day", 20)) or 0
+        )
+        self.smart_recovery_max_delete_capacity_percent_run = float(
+            self._parse_number(config.get("smart_recovery_max_delete_capacity_percent_run", 20)) or 0
+        )
+        self.smart_recovery_max_delete_capacity_percent_day = float(
+            self._parse_number(config.get("smart_recovery_max_delete_capacity_percent_day", 40)) or 0
         )
         self.smart_allow_proactive_delete = bool(
             config.get("smart_allow_proactive_delete", False)
@@ -1049,6 +1087,11 @@ class BrushFlow(_PluginBase):
                 float(current.get("smart_candidate_confirmation_minutes") or 0) < float(previous.smart_candidate_confirmation_minutes or 0),
                 int(current.get("smart_max_delete_per_run") or 0) > int(previous.smart_max_delete_per_run or 0),
                 float(current.get("smart_max_delete_capacity_percent_day") or 0) > float(previous.smart_max_delete_capacity_percent_day or 0),
+                bool(current.get("smart_recovery_enabled")) and not previous.smart_recovery_enabled,
+                float(current.get("smart_recovery_trigger_percent") or 0) < float(previous.smart_recovery_trigger_percent or 0),
+                float(current.get("smart_recovery_max_delete_percent_day") or 0) > float(previous.smart_recovery_max_delete_percent_day or 0),
+                float(current.get("smart_recovery_max_delete_capacity_percent_run") or 0) > float(previous.smart_recovery_max_delete_capacity_percent_run or 0),
+                float(current.get("smart_recovery_max_delete_capacity_percent_day") or 0) > float(previous.smart_recovery_max_delete_capacity_percent_day or 0),
                 bool(current.get("smart_allow_proactive_delete")) and not previous.smart_allow_proactive_delete,
             )
         )
@@ -1084,6 +1127,7 @@ class BrushFlow(_PluginBase):
             row["smart_shadow_until"] = now + 24 * 3600
         row["smart_migration_version"] = 8
         row["smart_allow_proactive_delete"] = bool(row.get("smart_allow_proactive_delete", False))
+        row["smart_recovery_enabled"] = bool(row.get("smart_recovery_enabled", True))
         row["site_ratio_reached_behavior"] = row.get("site_ratio_reached_behavior") or "continue"
         return row
 
@@ -1940,6 +1984,23 @@ class BrushFlow(_PluginBase):
             if now - float(row.get("at") or 0) <= 24 * 3600
         )
         capacity = float(task.disksize or 0) * 1024**3
+        capacity_target = capacity * task.smart_capacity_target_percent / 100 if capacity else None
+        capacity_ratio = current_size / capacity if capacity else 0.0
+        recovery_active = bool(
+            task.smart_recovery_enabled
+            and capacity
+            and capacity_ratio >= float(task.smart_recovery_trigger_percent or 125) / 100
+        )
+        blocker_counts: Dict[str, int] = {}
+        for row in (latest_deletion or {}).get("evaluated", []):
+            if row.get("action") == "candidate":
+                continue
+            for code in row.get("reasons") or []:
+                blocker_counts[code] = blocker_counts.get(code, 0) + 1
+        deletion_blockers = [
+            {"code": code, "label": self._smart_reason_label(code), "count": count}
+            for code, count in sorted(blocker_counts.items(), key=lambda item: (-item[1], item[0]))[:5]
+        ]
         shadow_remaining = max(float(task.smart_shadow_until or 0) - now, 0.0)
         if not task.smart_enabled:
             mode, mode_label = "disabled", "智能删种未启用"
@@ -1972,9 +2033,16 @@ class BrushFlow(_PluginBase):
                 "capacity_bytes": capacity,
                 "current_size_bytes": current_size,
                 "capacity_trigger_bytes": capacity * task.smart_capacity_trigger_percent / 100 if capacity else None,
-                "capacity_target_bytes": capacity * task.smart_capacity_target_percent / 100 if capacity else None,
+                "capacity_target_bytes": capacity_target,
+                "capacity_debt_bytes": max(current_size - (capacity_target or current_size), 0.0),
+                "capacity_ratio": round(capacity_ratio, 4),
                 "capacity_trigger_percent": task.smart_capacity_trigger_percent,
                 "capacity_target_percent": task.smart_capacity_target_percent,
+                "recovery_enabled": task.smart_recovery_enabled,
+                "recovery_active": recovery_active,
+                "recovery_trigger_percent": task.smart_recovery_trigger_percent,
+                "recovery_run_capacity_percent": task.smart_recovery_max_delete_capacity_percent_run,
+                "recovery_day_capacity_percent": task.smart_recovery_max_delete_capacity_percent_day,
                 "estimated_freed_bytes": (latest_deletion or {}).get("estimated_freed_bytes", 0),
                 "uploaded_gb_per_day": round(uploaded_24h / 1024**3, 3),
                 "unit_capacity_yield_per_day": round(uploaded_24h / current_size, 6) if current_size else 0.0,
@@ -1982,6 +2050,8 @@ class BrushFlow(_PluginBase):
                 "download_health": download_health,
                 "selection_explanations": (latest_selection or {}).get("decisions", []),
                 "deletion_explanations": (latest_deletion or {}).get("selected", []),
+                "deletion_blockers": deletion_blockers,
+                "deletion_reason_codes": (latest_deletion or {}).get("reason_codes", []),
                 "pending_candidates": candidate_rows[:50],
                 "audit_count": len(audit),
             }
@@ -3159,8 +3229,8 @@ class BrushFlow(_PluginBase):
         return expired, "促销已过期" if expired else ""
 
     @staticmethod
-    def _smart_reason_text(result: Any) -> str:
-        """把引擎原因码翻译成通知和日志可读的文本。"""
+    def _smart_reason_label(code: str) -> str:
+        """把单个引擎原因码翻译成通知、日志和界面可读的文本。"""
         labels = {
             "incomplete": "未完成下载",
             "hit_and_run": "H&R 保护",
@@ -3179,9 +3249,20 @@ class BrushFlow(_PluginBase):
             "low_retention_value": "长期低需求、低上传或资源不稀缺",
             "low_value_unconfirmed": "低价值信号尚未连续确认",
             "valuable_seed": "存在上传需求或资源稀缺，继续保留",
+            "capacity_recovery": "容量严重超额，已启用恢复模式",
+            "recovery_oversize_single": "恢复期单个大种子容量放行",
+            "no_low_value_candidate": "没有通过安全线和连续确认的低价值候选",
+            "byte_cap": "删除容量配额已用尽",
+            "daily_count_cap": "每日删除数量配额已用尽",
+            "run_count_cap": "单轮删除数量配额已用尽",
         }
+        return labels.get(code, code)
+
+    @classmethod
+    def _smart_reason_text(cls, result: Any) -> str:
+        """把引擎原因码翻译成通知和日志可读的文本。"""
         codes = getattr(result, "reason_codes", ()) or ()
-        return "、".join(labels.get(code, code) for code in codes) or "智能策略"
+        return "、".join(cls._smart_reason_label(code) for code in codes) or "智能策略"
 
     def _smart_policy(self, task: BrushTaskConfig) -> SmartPolicy:
         """从任务配置构造站点级智能策略；最低时长来自该任务绑定站点。"""
@@ -3213,6 +3294,15 @@ class BrushFlow(_PluginBase):
             max_delete_capacity_percent_day=float(task.smart_max_delete_capacity_percent_day or 0),
             max_delete_gb_per_run=float(task.smart_max_delete_gb_per_run or 0),
             max_delete_gb_per_day=float(task.smart_max_delete_gb_per_day or 0),
+            capacity_recovery_enabled=bool(task.smart_recovery_enabled),
+            capacity_recovery_trigger_percent=float(task.smart_recovery_trigger_percent or 125),
+            recovery_max_delete_percent_day=float(task.smart_recovery_max_delete_percent_day or 0),
+            recovery_max_delete_capacity_percent_run=float(
+                task.smart_recovery_max_delete_capacity_percent_run or 0
+            ),
+            recovery_max_delete_capacity_percent_day=float(
+                task.smart_recovery_max_delete_capacity_percent_day or 0
+            ),
             allow_proactive_delete=bool(task.smart_allow_proactive_delete),
             required_conditions=bool(task.smart_required_conditions),
             excluded_tags=excluded_tags,
@@ -3445,6 +3535,11 @@ class BrushFlow(_PluginBase):
                 "current_size": current_size,
                 "target_size": selection.target_size,
                 "estimated_freed_bytes": selection.estimated_freed_bytes,
+                "capacity_ratio": selection.capacity_ratio,
+                "capacity_debt_bytes": selection.capacity_debt_bytes,
+                "recovery_active": selection.recovery_active,
+                "run_byte_cap": selection.run_byte_cap,
+                "daily_byte_cap": selection.daily_byte_cap,
                 "reason_codes": list(selection.reason_codes),
                 "selected": [
                     {
@@ -3642,6 +3737,12 @@ class BrushFlow(_PluginBase):
             "capacity_trigger_percent": task.smart_capacity_trigger_percent,
             "capacity_target_percent": task.smart_capacity_target_percent,
             "estimated_freed_bytes": selection.estimated_freed_bytes,
+            "capacity_ratio": getattr(selection, "capacity_ratio", 0.0),
+            "capacity_debt_bytes": getattr(selection, "capacity_debt_bytes", 0.0),
+            "recovery_active": bool(getattr(selection, "recovery_active", False)),
+            "recovery_trigger_percent": task.smart_recovery_trigger_percent,
+            "recovery_run_byte_cap": getattr(selection, "run_byte_cap", 0.0),
+            "recovery_daily_byte_cap": getattr(selection, "daily_byte_cap", 0.0),
             "pending_delete_count": len(selection.selected),
             "alert": alert,
             "updated_at": now,

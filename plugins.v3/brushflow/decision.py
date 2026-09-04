@@ -216,7 +216,8 @@ class TorrentObservation:
             demand_confirmations=max(int(_number(data.get("demand_confirmations"))), 0),
             low_value_confirmations=max(int(_number(data.get("low_value_confirmations"))), 0),
             low_value_span_minutes=_positive(data.get("low_value_span_minutes")),
-            capacity_pressure=max(0.0, min(_number(data.get("capacity_pressure")), 1.0)),
+            # 容量压力允许超过 100%，供超额恢复模式区分“刚触发”与严重超额。
+            capacity_pressure=max(0.0, min(_number(data.get("capacity_pressure")), 4.0)),
         )
 
     @property
@@ -256,6 +257,11 @@ class SmartPolicy:
     max_delete_capacity_percent_day: float = 8.0
     max_delete_gb_per_run: float = 0.0
     max_delete_gb_per_day: float = 0.0
+    capacity_recovery_enabled: bool = True
+    capacity_recovery_trigger_percent: float = 125.0
+    recovery_max_delete_percent_day: float = 20.0
+    recovery_max_delete_capacity_percent_run: float = 20.0
+    recovery_max_delete_capacity_percent_day: float = 40.0
     allow_proactive_delete: bool = False
     required_conditions: bool = False
     excluded_tags: tuple[str, ...] = ()
@@ -283,6 +289,11 @@ class SelectionResult:
     pressure: bool = False
     target_size: Optional[float] = None
     estimated_freed_bytes: float = 0.0
+    capacity_ratio: float = 0.0
+    capacity_debt_bytes: float = 0.0
+    recovery_active: bool = False
+    run_byte_cap: float = 0.0
+    daily_byte_cap: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -630,7 +641,14 @@ def retention_score(
         ratio_signal = min(observation.ratio / target, 1.0) * min(max(_number(ratio_weight), 0.0), 5.0)
     inactivity_penalty = min(observation.inactive_time / (7 * 86400), 1.0) * 10.0
     size_factor = min(observation.total_size / (100 * 1024**3), 1.0)
-    capacity_cost = size_factor * (5.0 + 10.0 * observation.capacity_pressure)
+    # 常规容量压力在 100% 以内累计；超过任务硬容量后继续增加成本，
+    # 避免 90% 和 350% 占用得到完全相同的删种排序。
+    normal_pressure = min(max(observation.capacity_pressure, 0.0), 1.0)
+    overload_pressure = min(max(observation.capacity_pressure - 1.0, 0.0), 3.0)
+    capacity_cost = min(
+        size_factor * (5.0 + 10.0 * normal_pressure + 15.0 * overload_pressure),
+        30.0,
+    )
     contributions = {
         "recent_yield": round(yield_signal, 2),
         "activity": round(activity_signal, 2),
@@ -769,7 +787,18 @@ def select_deletions(
     pressure = bool(trigger is not None and current_size >= trigger)
     if policy.allow_proactive_delete:
         pressure = True
-    capacity_pressure = min(current_size / trigger, 1.0) if trigger else (1.0 if pressure else 0.0)
+    capacity_base_for_pressure = disk_limit or trigger
+    capacity_ratio = (
+        max(current_size / capacity_base_for_pressure, 0.0)
+        if capacity_base_for_pressure
+        else (1.0 if pressure else 0.0)
+    )
+    capacity_pressure = min(capacity_ratio, 4.0)
+    recovery_active = bool(
+        policy.capacity_recovery_enabled
+        and disk_limit
+        and capacity_ratio >= max(policy.capacity_recovery_trigger_percent, 100.0) / 100.0
+    )
     normalized = [
         TorrentObservation(**{**item.__dict__, "capacity_pressure": capacity_pressure})
         for item in normalized
@@ -784,7 +813,12 @@ def select_deletions(
         for item in normalized
     )
     if not pressure:
-        return SelectionResult(evaluated=evaluated, reason_codes=("no_pressure",), pressure=False)
+        return SelectionResult(
+            evaluated=evaluated,
+            reason_codes=("no_pressure",),
+            pressure=False,
+            capacity_ratio=capacity_ratio,
+        )
 
     target_size = min_size
     if target_size is None and policy.allow_proactive_delete and max_size is None:
@@ -792,7 +826,13 @@ def select_deletions(
     elif target_size is None and disk_limit:
         target_size = disk_limit * max(min(policy.capacity_target_percent, 100.0), 0.0) / 100.0
     if target_size is None:
-        return SelectionResult(evaluated=evaluated, reason_codes=("missing_target_size",), pressure=True)
+        return SelectionResult(
+            evaluated=evaluated,
+            reason_codes=("missing_target_size",),
+            pressure=True,
+            capacity_ratio=capacity_ratio,
+            recovery_active=recovery_active,
+        )
 
     by_hash = {item.torrent_hash: item for item in normalized}
     eligible = [result for result in evaluated if result.eligible]
@@ -808,12 +848,22 @@ def select_deletions(
         max(1, math.floor(active_count * policy.max_delete_percent_day / 100.0))
         if policy.max_delete_percent_day > 0 else len(eligible)
     )
+    if recovery_active and policy.recovery_max_delete_percent_day > 0:
+        daily_count_cap = max(
+            daily_count_cap,
+            max(1, math.floor(active_count * policy.recovery_max_delete_percent_day / 100.0)),
+        )
     remaining_count = max(daily_count_cap - max(deleted_today, 0), 0)
     run_count_cap = max(int(policy.max_delete_per_run), 0)
 
     capacity_base = disk_limit or current_size
-    run_percent_cap = capacity_base * policy.max_delete_capacity_percent_run / 100.0
-    day_percent_cap = capacity_base * policy.max_delete_capacity_percent_day / 100.0
+    run_percent = policy.max_delete_capacity_percent_run
+    day_percent = policy.max_delete_capacity_percent_day
+    if recovery_active:
+        run_percent = max(run_percent, policy.recovery_max_delete_capacity_percent_run)
+        day_percent = max(day_percent, policy.recovery_max_delete_capacity_percent_day)
+    run_percent_cap = capacity_base * run_percent / 100.0
+    day_percent_cap = capacity_base * day_percent / 100.0
     run_explicit_cap = policy.max_delete_gb_per_run * 1024**3
     day_explicit_cap = policy.max_delete_gb_per_day * 1024**3
     run_byte_cap = min(
@@ -826,6 +876,7 @@ def select_deletions(
     selected: list[DecisionResult] = []
     freed = 0.0
     remaining_size = current_size
+    oversize_recovery_selected = False
     for result in eligible:
         if len(selected) >= min(run_count_cap, remaining_count) or remaining_size <= target_size:
             break
@@ -838,7 +889,29 @@ def select_deletions(
         freed += size
         remaining_size = max(remaining_size - size, 0.0)
 
-    reasons: list[str] = []
+    # 正常模式不会越过单轮 GB 上限；严重超额时若所有低价值候选都比
+    # 单轮上限大，允许一个仍在日上限内的大种子，避免容量闭环永久卡死。
+    if (
+        recovery_active
+        and not selected
+        and eligible
+        and run_count_cap > 0
+        and remaining_count > 0
+        and run_byte_cap > 0
+        and remaining_daily_bytes > 0
+    ):
+        for result in eligible:
+            size = by_hash[result.torrent_hash].total_size
+            if size <= run_byte_cap or size > remaining_daily_bytes:
+                continue
+            selected.append(result)
+            freed = size
+            oversize_recovery_selected = True
+            break
+
+    reasons: list[str] = ["capacity_recovery"] if recovery_active else []
+    if oversize_recovery_selected:
+        reasons.append("recovery_oversize_single")
     if not selected:
         reasons.append("no_low_value_candidate")
     if run_count_cap and len(selected) >= run_count_cap and len(selected) < len(eligible):
@@ -854,4 +927,9 @@ def select_deletions(
         pressure=True,
         target_size=target_size,
         estimated_freed_bytes=freed,
+        capacity_ratio=capacity_ratio,
+        capacity_debt_bytes=max(current_size - target_size, 0.0),
+        recovery_active=recovery_active,
+        run_byte_cap=run_byte_cap,
+        daily_byte_cap=daily_byte_cap,
     )

@@ -797,7 +797,7 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                       </VChip>
                     </div>
                     <div class="text-body-2 text-medium-emphasis">
-                      {{ strategy.engine_version || '8.0.1' }} · {{ strategy.profile || taskConfig.smart_profile || 'balanced' }} · 本地 30 天学习
+                      {{ strategy.engine_version || '8.1.0' }} · {{ strategy.profile || taskConfig.smart_profile || 'balanced' }} · 本地 30 天学习
                     </div>
                   </div>
                   <div v-if="taskConfig.smart_enabled" class="brushflow-strategy-actions">
@@ -817,12 +817,17 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                   <div><span>有效样本</span><strong>{{ strategy.learning_sample_count || 0 }}</strong></div>
                   <div><span>误判率</span><strong>{{ (Number(strategy.false_positive_rate || 0) * 100).toFixed(1) }}%</strong></div>
                   <div><span>容量闭环</span><strong>{{ strategy.capacity_trigger_percent || 90 }}% → {{ strategy.capacity_target_percent || 85 }}%</strong></div>
+                  <div><span>待回收容量</span><strong>{{ formatBytes(strategy.capacity_debt_bytes || 0) }}</strong></div>
+                  <div><span>超额恢复</span><strong>{{ strategy.recovery_active ? `运行中 · ${strategy.recovery_trigger_percent || 125}%` : '未触发' }}</strong></div>
                   <div><span>预计释放</span><strong>{{ formatBytes(strategy.estimated_freed_bytes || 0) }}</strong></div>
                   <div><span>上传收益</span><strong>{{ Number(strategy.uploaded_gb_per_day || 0).toFixed(2) }} GB/天</strong></div>
                   <div><span>单位容量收益</span><strong>{{ (Number(strategy.unit_capacity_yield_per_day || 0) * 100).toFixed(3) }}%/天</strong></div>
                   <div><span>实际释放（24h）</span><strong>{{ formatBytes(strategy.actual_freed_bytes_24h || 0) }}</strong></div>
                   <div><span>下载健康</span><strong>{{ downloadHealth.stalled_count || 0 }} 卡住 · {{ downloadHealth.slow_count || 0 }} 低速</strong></div>
                 </div>
+                <VAlert v-if="strategy.recovery_active" type="warning" variant="tonal" density="compact">
+                  当前做种超过任务容量 {{ strategy.recovery_trigger_percent || 125 }}%，已进入超额恢复模式：低价值大种会获得更高容量成本，单轮/单日容量配额按恢复设置放宽；H&R、最低保种、真实上传与活动连接仍为硬保护。
+                </VAlert>
                 <VAlert
                   v-if="downloadHealth.stalled_count || downloadHealth.slow_count || downloadHealth.queued_count || downloadHealth.error_count"
                   type="warning"
@@ -860,6 +865,9 @@ defineExpose({ loadStatus, refreshAll, loading, saving })
                       <VChip size="x-small" color="warning" variant="tonal">{{ item.score }} 分</VChip>
                     </article>
                     <div v-if="!strategy.deletion_explanations?.length" class="brushflow-table-empty">当前没有通过连续确认的低价值候选</div>
+                    <div v-if="strategy.deletion_blockers?.length" class="text-caption text-medium-emphasis mt-2">
+                      本轮主要保留/拦截原因：{{ strategy.deletion_blockers.map(item => `${item.label} ${item.count} 个`).join('；') }}
+                    </div>
                     <VAlert
                       v-if="(strategy.pending_candidates || []).some(item => item.recovered)"
                       type="warning"

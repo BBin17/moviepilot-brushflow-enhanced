@@ -15,6 +15,11 @@ BALANCED_PRESET = {
     "smart_candidate_confirmation_minutes": 30,
     "smart_score_threshold": 40,
     "smart_max_delete_capacity_percent_day": 8,
+    "smart_recovery_enabled": True,
+    "smart_recovery_trigger_percent": 125,
+    "smart_recovery_max_delete_percent_day": 20,
+    "smart_recovery_max_delete_capacity_percent_run": 20,
+    "smart_recovery_max_delete_capacity_percent_day": 40,
 }
 
 

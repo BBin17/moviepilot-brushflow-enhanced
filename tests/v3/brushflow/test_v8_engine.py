@@ -172,6 +172,56 @@ class DeletionTests(unittest.TestCase):
         self.assertEqual(len(result.selected), 1)
         self.assertLessEqual(result.estimated_freed_bytes, 4 * GIB)
 
+    def test_severe_over_capacity_enters_recovery_and_expands_capacity_cap(self):
+        result = decision.select_deletions(
+            [cold_seed(str(index), 10) for index in range(3)],
+            balanced_policy(
+                max_delete_per_run=3,
+                max_delete_percent_day=5,
+                max_delete_capacity_percent_run=4,
+                max_delete_capacity_percent_day=8,
+            ),
+            current_size=130 * GIB,
+            disk_limit=100 * GIB,
+        )
+        self.assertTrue(result.recovery_active)
+        self.assertEqual(len(result.selected), 1)
+        self.assertEqual(result.estimated_freed_bytes, 10 * GIB)
+        self.assertIn("capacity_recovery", result.reason_codes)
+
+    def test_recovery_allows_one_daily_safe_oversize_seed(self):
+        result = decision.select_deletions(
+            [cold_seed("large", 30)],
+            balanced_policy(
+                max_delete_per_run=1,
+                max_delete_capacity_percent_run=4,
+                max_delete_capacity_percent_day=8,
+            ),
+            current_size=130 * GIB,
+            disk_limit=100 * GIB,
+        )
+        self.assertEqual([row.torrent_hash for row in result.selected], ["large"])
+        self.assertIn("recovery_oversize_single", result.reason_codes)
+
+    def test_capacity_cost_keeps_rising_beyond_trigger(self):
+        seed = cold_seed("capacity", 20)
+        normal = decision.select_deletions(
+            [seed],
+            balanced_policy(),
+            current_size=95 * GIB,
+            disk_limit=100 * GIB,
+        )
+        overloaded = decision.select_deletions(
+            [seed],
+            balanced_policy(),
+            current_size=150 * GIB,
+            disk_limit=100 * GIB,
+        )
+        self.assertLess(
+            overloaded.evaluated[0].contributions["capacity_cost"],
+            normal.evaluated[0].contributions["capacity_cost"],
+        )
+
     def test_73_compat_engine_does_not_require_v8_confirmation(self):
         result = decision.evaluate_candidate(
             cold_seed("legacy", low_value_confirmations=0, low_value_span_minutes=0),

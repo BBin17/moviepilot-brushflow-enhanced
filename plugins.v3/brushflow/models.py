@@ -84,6 +84,11 @@ class BrushTaskPayload(BaseModel):
     smart_max_delete_capacity_percent_day: float = Field(8, ge=0, le=100)
     smart_max_delete_gb_per_run: Optional[float] = Field(None, gt=0)
     smart_max_delete_gb_per_day: Optional[float] = Field(None, gt=0)
+    smart_recovery_enabled: bool = True
+    smart_recovery_trigger_percent: float = Field(125, ge=100, le=500)
+    smart_recovery_max_delete_percent_day: float = Field(20, ge=0, le=100)
+    smart_recovery_max_delete_capacity_percent_run: float = Field(20, ge=0, le=100)
+    smart_recovery_max_delete_capacity_percent_day: float = Field(40, ge=0, le=100)
     smart_allow_proactive_delete: bool = False
     smart_required_conditions: bool = False
     smart_shadow_until: Optional[float] = Field(None, ge=0)

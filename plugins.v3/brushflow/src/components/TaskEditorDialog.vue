@@ -36,6 +36,11 @@ const presetFields = [
   'smart_max_delete_capacity_percent_day',
   'smart_max_delete_gb_per_run',
   'smart_max_delete_gb_per_day',
+  'smart_recovery_enabled',
+  'smart_recovery_trigger_percent',
+  'smart_recovery_max_delete_percent_day',
+  'smart_recovery_max_delete_capacity_percent_run',
+  'smart_recovery_max_delete_capacity_percent_day',
   'smart_allow_proactive_delete',
   'smart_required_conditions',
 ]
@@ -544,6 +549,44 @@ async function saveTask() {
                   <VCol cols="12" md="4">
                     <VTextField v-model.number="localTask.smart_max_delete_gb_per_day" type="number" min="0" label="每日删除 GB 上限（可选）" />
                   </VCol>
+                  <VCol cols="12" md="4" v-if="localTask.smart_recovery_enabled">
+                    <VTextField
+                      v-model.number="localTask.smart_recovery_trigger_percent"
+                      type="number"
+                      min="100"
+                      max="500"
+                      label="超额恢复触发线（%）"
+                      hint="超过任务容量后才加速，默认 125%"
+                      persistent-hint
+                    />
+                  </VCol>
+                  <VCol cols="12" md="4" v-if="localTask.smart_recovery_enabled">
+                    <VTextField
+                      v-model.number="localTask.smart_recovery_max_delete_capacity_percent_run"
+                      type="number"
+                      min="0"
+                      max="100"
+                      label="恢复期每轮释放上限（%）"
+                    />
+                  </VCol>
+                  <VCol cols="12" md="4" v-if="localTask.smart_recovery_enabled">
+                    <VTextField
+                      v-model.number="localTask.smart_recovery_max_delete_capacity_percent_day"
+                      type="number"
+                      min="0"
+                      max="100"
+                      label="恢复期每日释放上限（%）"
+                    />
+                  </VCol>
+                  <VCol cols="12" md="4" v-if="localTask.smart_recovery_enabled">
+                    <VTextField
+                      v-model.number="localTask.smart_recovery_max_delete_percent_day"
+                      type="number"
+                      min="0"
+                      max="100"
+                      label="恢复期每日删除比例（%）"
+                    />
+                  </VCol>
                 </VRow>
                 <div v-if="localTask.smart_enabled" class="editor-switches">
                   <VSwitch
@@ -556,6 +599,13 @@ async function saveTask() {
                   <VSwitch
                     v-model="localTask.smart_required_conditions"
                     label="同时满足旧版删除条件才允许删除"
+                    color="primary"
+                    hide-details
+                    inset
+                  />
+                  <VSwitch
+                    v-model="localTask.smart_recovery_enabled"
+                    label="超额容量自动恢复（仅超过任务上限 125% 后加速，硬安全线不变）"
                     color="primary"
                     hide-details
                     inset
