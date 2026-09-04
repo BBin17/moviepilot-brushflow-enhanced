@@ -71,6 +71,28 @@ def test_force_cleanup_uses_the_unified_action_entrypoint():
     assert submitted == [(task.id, "force_cleanup")]
 
 
+def test_force_cleanup_runtime_exposes_mergeable_progress():
+    task = smart_task()
+    plugin = make_plugin(task)
+
+    assert plugin._mark_task_queued(task.id, "force_cleanup") is True
+    queued = plugin._runtime[task.id]["cleanup_progress"]
+    assert queued["state"] == "queued"
+    assert queued["percent"] == 2
+
+    plugin._update_cleanup_progress(
+        task.id,
+        state="running",
+        phase="正在复核硬安全线",
+        percent=30,
+        candidate_count=128,
+    )
+    progress = plugin._runtime[task.id]["cleanup_progress"]
+    assert progress["started_at"] == queued["started_at"]
+    assert progress["state"] == "running"
+    assert progress["candidate_count"] == 128
+
+
 def test_false_positive_gate_auto_extends_shadow():
     task = smart_task(smart_shadow_until=time.time() - 1)
     plugin = make_plugin(task)

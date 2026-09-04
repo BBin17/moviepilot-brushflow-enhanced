@@ -1384,6 +1384,20 @@ class BrushFlow(_PluginBase):
             if runtime.get("state") in {"queued", "running"}:
                 return False
             runtime.update({"state": "queued", "operation": operation, "last_error": None})
+            if operation == "force_cleanup":
+                now = time.time()
+                runtime["cleanup_progress"] = {
+                    "state": "queued",
+                    "phase": "已提交，等待任务锁",
+                    "percent": 2,
+                    "candidate_count": 0,
+                    "selected_count": 0,
+                    "deleted_count": 0,
+                    "freed_bytes": 0.0,
+                    "protected_count": 0,
+                    "started_at": now,
+                    "updated_at": now,
+                }
             return True
 
     def _set_runtime(self, task_id: str, **updates: Any) -> None:
@@ -1391,6 +1405,15 @@ class BrushFlow(_PluginBase):
         with self._runtime_lock:
             runtime = self._runtime.setdefault(task_id, {"state": "idle", "operation": None, "last_error": None})
             runtime.update(updates)
+
+    def _update_cleanup_progress(self, task_id: str, **updates: Any) -> None:
+        """更新手动安全清理的瞬时进度，供前端短轮询展示。"""
+        with self._runtime_lock:
+            runtime = self._runtime.setdefault(task_id, {"state": "idle", "operation": None, "last_error": None})
+            progress = dict(runtime.get("cleanup_progress") or {})
+            progress.update(updates)
+            progress["updated_at"] = time.time()
+            runtime["cleanup_progress"] = progress
 
     def _append_run(self, task_id: str, report: dict) -> None:
         """保存最近的刷流或检查诊断记录"""
@@ -1485,6 +1508,7 @@ class BrushFlow(_PluginBase):
             "state": display_state,
             "operation": runtime.get("operation"),
             "last_error": runtime.get("last_error"),
+            "cleanup_progress": runtime.get("cleanup_progress"),
             "next_run_at": self._next_run_at(task, history),
             "last_run": history[0] if history else None,
             "statistic": statistic,
@@ -2439,6 +2463,13 @@ class BrushFlow(_PluginBase):
             operation="force_cleanup" if force_cleanup else "check",
             last_error=None,
         )
+        if force_cleanup:
+            self._update_cleanup_progress(
+                task.id,
+                state="running",
+                phase="正在读取下载器任务",
+                percent=10,
+            )
         try:
             with self._task_scope(task.id):
                 self._run_check(task, report, force_cleanup=force_cleanup)
@@ -2446,11 +2477,50 @@ class BrushFlow(_PluginBase):
         except Exception as err:
             report.update({"success": False, "error": str(err)})
             self._set_runtime(task.id, last_error=str(err))
+            if force_cleanup:
+                self._update_cleanup_progress(
+                    task.id,
+                    state="failed",
+                    phase="清理失败",
+                    percent=100,
+                    error=str(err),
+                    finished_at=time.time(),
+                )
             logger.error(f"刷流任务 [{task.name}] 检查失败：{str(err)}")
         finally:
             task_lock.release()
         report["finished_at"] = self._now_iso()
         self._append_run(task.id, report)
+        if force_cleanup:
+            if report.get("success"):
+                deleted_count = int(report.get("deleted_count") or 0)
+                freed_bytes = float(report.get("freed_bytes") or 0)
+                self._update_cleanup_progress(
+                    task.id,
+                    state="completed",
+                    phase="安全清理完成",
+                    percent=100,
+                    candidate_count=int(report.get("deletion_candidate_count") or report.get("planned_delete_count") or 0),
+                    selected_count=int(report.get("selected_delete_count") or 0),
+                    deleted_count=deleted_count,
+                    freed_bytes=freed_bytes,
+                    protected_count=int(report.get("protected_count") or 0),
+                    message=(
+                        f"已删除 {deleted_count} 个，释放 {self.__bytes_to_gb(freed_bytes):.1f} GB"
+                        if deleted_count
+                        else str(report.get("deletion_message") or "本轮没有种子通过最终安全复核")
+                    ),
+                    finished_at=time.time(),
+                )
+            elif (self._runtime.get(task.id, {}).get("cleanup_progress") or {}).get("state") != "failed":
+                self._update_cleanup_progress(
+                    task.id,
+                    state="failed",
+                    phase="清理未完成",
+                    percent=100,
+                    error=str(report.get("error") or "下载器不可用，请检查连接后重试"),
+                    finished_at=time.time(),
+                )
         self._set_runtime(task.id, state="idle", operation=None)
 
     def __get_tracker_items(self, torrent: Any) -> List[dict]:
@@ -2585,6 +2655,8 @@ class BrushFlow(_PluginBase):
 
     def _run_check(self, task: BrushTaskConfig, report: dict, force_cleanup: bool = False) -> None:
         """在已绑定任务上下文中执行刷流种子检查"""
+        if force_cleanup:
+            self._update_cleanup_progress(task.id, state="running", phase="正在连接下载器", percent=8)
         if not self._validate_task_reference(task) or not self.downloader:
             report["result"] = "downloader_unavailable"
             return
@@ -2604,6 +2676,13 @@ class BrushFlow(_PluginBase):
             self._recalculate_statistics(task.id)
             return
         check_torrents = [seeding_torrents_dict[item] for item in check_hashes if item in seeding_torrents_dict]
+        if force_cleanup:
+            self._update_cleanup_progress(
+                task.id,
+                phase=f"正在复核 {len(check_torrents)} 个托管种子",
+                percent=30,
+                candidate_count=len(check_torrents),
+            )
         self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
         health_summary = self._build_download_health_summary(torrent_tasks)
         report["download_health"] = health_summary
@@ -2649,6 +2728,20 @@ class BrushFlow(_PluginBase):
             if torrent_hash not in invalid_delete_hashes
         ]
         planned_delete_count = len(invalid_delete_hashes) + int(report.get("smart_plan_count") or len(regular_delete_hashes))
+        selected_delete_count = len(invalid_delete_hashes) + len(regular_delete_hashes)
+        report["selected_delete_count"] = selected_delete_count
+        if force_cleanup:
+            self._update_cleanup_progress(
+                task.id,
+                phase=(
+                    f"安全复核完成，{selected_delete_count} 个准备清理"
+                    if selected_delete_count
+                    else "安全复核完成，没有种子可删除"
+                ),
+                percent=60,
+                candidate_count=planned_delete_count,
+                selected_count=selected_delete_count,
+            )
         deleted_from_downloader = False
         actual_invalid_hashes: List[str] = []
         actual_regular_hashes: List[str] = []
@@ -2685,6 +2778,12 @@ class BrushFlow(_PluginBase):
                 else:
                     logger.warning(f"刷流任务 [{task.name}] 清理无效做种失败，本轮保留任务")
         if regular_delete_hashes:
+            if force_cleanup:
+                self._update_cleanup_progress(
+                    task.id,
+                    phase=f"正在调用下载器删除 {len(regular_delete_hashes)} 个种子",
+                    percent=75,
+                )
             if DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
                 self.__qb_torrents_reannounce(regular_delete_hashes)
             if downloader.delete_torrents(ids=regular_delete_hashes, delete_file=task.delete_files):
@@ -2728,6 +2827,19 @@ class BrushFlow(_PluginBase):
                         },
                     )
         need_delete_hashes = list(dict.fromkeys(actual_invalid_hashes + actual_regular_hashes))
+        freed_bytes = sum(
+            float((torrent_tasks.get(torrent_hash) or {}).get("size") or (torrent_tasks.get(torrent_hash) or {}).get("total_size") or 0)
+            for torrent_hash in need_delete_hashes
+        )
+        report["freed_bytes"] = freed_bytes
+        if force_cleanup:
+            self._update_cleanup_progress(
+                task.id,
+                phase="下载器操作完成，正在整理结果",
+                percent=90,
+                deleted_count=len(need_delete_hashes),
+                freed_bytes=freed_bytes,
+            )
         self.__auto_archive_tasks(torrent_tasks)
         self._cleanup_unused_task_tag(
             task,

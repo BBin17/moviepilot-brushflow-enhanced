@@ -49,4 +49,4 @@ BrushFlow 9.0 面向日常 NAS 用户重构为“一套嵌套配置、一条决�
 
 ## 构建
 
-在本目录执行 `npm run build`。构建会先验证 Python、插件 `package.json` 与根目录 `package.v3.json` 的 9.0.0 版本一致性，再验证 9.0 前端默认值并生成 `dist/assets`。
+在本目录执行 `npm run build`。构建会先验证 Python、插件 `package.json` 与根目录 `package.v3.json` 的发布版本一致性，再验证 9.0 前端默认值并生成 `dist/assets`。
