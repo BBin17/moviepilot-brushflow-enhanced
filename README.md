@@ -1,4 +1,4 @@
-# BrushFlow Enhanced 9.0.3
+# BrushFlow Enhanced 9.0.4
 
 MoviePilot V3 的多站点刷流插件。9.0 系列重构为单一嵌套任务模型、统一收益决策链和健康优先交互界面。
 
@@ -17,7 +17,7 @@ MoviePilot V3 的多站点刷流插件。9.0 系列重构为单一嵌套任务�
 
 ## 升级
 
-插件 ID 与配置前缀保持为 `BrushFlow`，可直接从当前 MoviePilot 版本升级到 9.0.3。咖啡、馒头、憨憨等现有任务会自动迁移；升级前配置保存到只读迁移备份，原始种子身份、学习数据和审计继续保留。
+插件 ID 与配置前缀保持为 `BrushFlow`，可直接从当前 MoviePilot 版本升级到 9.0.4。咖啡、馒头、憨憨等现有任务会自动迁移；升级前配置保存到只读迁移备份，原始种子身份、学习数据和审计继续保留。
 
 发布仓库：[BBin17/moviepilot-brushflow-enhanced](https://github.com/BBin17/moviepilot-brushflow-enhanced)
 

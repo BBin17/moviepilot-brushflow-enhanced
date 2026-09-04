@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 
@@ -284,6 +284,19 @@ class SelectionResult:
     recovery_active: bool = False
     run_byte_cap: float = 0.0
     daily_byte_cap: float = 0.0
+
+
+def manual_cleanup_policy(policy: SmartPolicy) -> SmartPolicy:
+    """单次手动清理只放宽额度，不改变任何候选硬保护规则。"""
+    return replace(
+        policy,
+        max_delete_per_run=10,
+        max_delete_percent_day=100.0,
+        max_delete_capacity_percent_run=25.0,
+        max_delete_capacity_percent_day=100.0,
+        max_delete_gb_per_run=0.0,
+        max_delete_gb_per_day=0.0,
+    )
 
 
 @dataclass(frozen=True)

@@ -45,6 +45,7 @@ from .decision import (
     candidate_score,
     capacity_selection_policy,
     detect_invalid_seed,
+    manual_cleanup_policy,
     rank_selection_candidates,
     select_deletions,
     size_range_matches,
@@ -823,6 +824,10 @@ class BrushFlow(_PluginBase):
             return self.run_task(task_id)
         if action == "run_check":
             return self.check_task(task_id)
+        if action == "force_cleanup":
+            if not document.deletion.enabled:
+                return schemas.Response(success=False, message="当前任务未启用自动删种")
+            return self._submit_task_operation(task_id, "force_cleanup")
         if self._is_task_busy(task_id):
             return schemas.Response(success=False, message="任务正在执行，请稍后再操作")
         if action in {"retry_stalled", "pause_stalled"}:
@@ -1350,8 +1355,9 @@ class BrushFlow(_PluginBase):
         if not self._mark_task_queued(task_id, operation):
             return schemas.Response(success=False, message="任务已有操作正在执行")
         target = self.brush if operation == "brush" else self.check
+        args = (task_id, False, True) if operation == "force_cleanup" else (task_id,)
         try:
-            ThreadHelper().submit(target, task_id)
+            ThreadHelper().submit(target, *args)
         except Exception as err:
             self._set_runtime(task_id, state="idle", operation=None, last_error=str(err))
             logger.error(f"提交刷流任务 [{task.name}] 失败：{str(err)}")
@@ -2412,7 +2418,12 @@ class BrushFlow(_PluginBase):
                 return False, "发布时间不在范围内"
         return True, None
 
-    def check(self, task_id: Optional[str] = None, wait_for_lock: bool = False) -> None:
+    def check(
+        self,
+        task_id: Optional[str] = None,
+        wait_for_lock: bool = False,
+        force_cleanup: bool = False,
+    ) -> None:
         """执行状态同步、删种和归档，到期检查可等待同任务的当前操作"""
         task = self._get_task_config(task_id)
         if not task or not self.get_state() or not task.enabled:
@@ -2422,10 +2433,15 @@ class BrushFlow(_PluginBase):
             logger.info(f"刷流任务 [{task.name}] 已有操作执行中，本轮检查跳过")
             return
         report = self._new_run_report("check")
-        self._set_runtime(task.id, state="running", operation="check", last_error=None)
+        self._set_runtime(
+            task.id,
+            state="running",
+            operation="force_cleanup" if force_cleanup else "check",
+            last_error=None,
+        )
         try:
             with self._task_scope(task.id):
-                self._run_check(task, report)
+                self._run_check(task, report, force_cleanup=force_cleanup)
             report["success"] = report.get("result") not in {"downloader_unavailable", "downloader_error"}
         except Exception as err:
             report.update({"success": False, "error": str(err)})
@@ -2567,7 +2583,7 @@ class BrushFlow(_PluginBase):
         self._save_current_task_data("invalid_seed_plan", plan)
         return list(dict.fromkeys(delete_hashes)), plan
 
-    def _run_check(self, task: BrushTaskConfig, report: dict) -> None:
+    def _run_check(self, task: BrushTaskConfig, report: dict, force_cleanup: bool = False) -> None:
         """在已绑定任务上下文中执行刷流种子检查"""
         if not self._validate_task_reference(task) or not self.downloader:
             report["result"] = "downloader_unavailable"
@@ -2613,7 +2629,11 @@ class BrushFlow(_PluginBase):
         report["invalid_seed_plan_reasons"] = list(invalid_seed_plan.values())
         smart_shadow_only = False
         if task.smart_enabled:
-            regular_delete_hashes = self.__delete_torrent_for_smart(filtered_torrents, torrent_tasks)
+            regular_delete_hashes = self.__delete_torrent_for_smart(
+                filtered_torrents,
+                torrent_tasks,
+                force_cleanup=force_cleanup,
+            )
             smart_plan = self._current_task_data("smart_plan", {})
             report["smart_plan_count"] = len(smart_plan)
             report["smart_execute_count"] = len(regular_delete_hashes)
@@ -2722,6 +2742,7 @@ class BrushFlow(_PluginBase):
                 "planned_delete_count": planned_delete_count,
                 "dry_run": False,
                 "active_count": sum(1 for item in torrent_tasks.values() if not item.get("deleted")),
+                "force_cleanup": bool(force_cleanup),
             }
         )
         strategy_status = self._build_strategy_status(task.id)
@@ -3096,6 +3117,7 @@ class BrushFlow(_PluginBase):
         self,
         torrents: List[Any],
         torrent_tasks: Dict[str, dict],
+        force_cleanup: bool = False,
     ) -> List[str]:
         """生成 9.0 统一删种计划；影子期和暂停期只记录、不执行。"""
         task = self._get_task_config()
@@ -3215,16 +3237,19 @@ class BrushFlow(_PluginBase):
             if now - float(row.get("at") or 0) < 86400
         )
         current_size = self.__calculate_seeding_torrents_size(torrent_tasks)
+        policy = self._smart_policy(task)
+        if force_cleanup:
+            policy = manual_cleanup_policy(policy)
         selection = select_deletions(
             enriched_observations,
-            self._smart_policy(task),
+            policy,
             current_size=current_size,
             min_size=min_size,
             max_size=max_size,
             disk_limit=disk_limit,
             history=history_before_current,
-            deleted_today=deleted_today,
-            deleted_today_bytes=deleted_today_bytes,
+            deleted_today=0 if force_cleanup else deleted_today,
+            deleted_today_bytes=0.0 if force_cleanup else deleted_today_bytes,
         )
 
         evaluated_by_hash = {result.torrent_hash: result for result in selection.evaluated}
@@ -3287,6 +3312,7 @@ class BrushFlow(_PluginBase):
                 "kind": "deletion",
                 "engine": strategy.get("engine_version"),
                 "mode": strategy.get("mode"),
+                "force_cleanup": bool(force_cleanup),
                 "pressure": selection.pressure,
                 "current_size": current_size,
                 "target_size": selection.target_size,
@@ -3327,12 +3353,17 @@ class BrushFlow(_PluginBase):
                 f"{','.join(selection.reason_codes) or '候选尚在连续确认或受硬安全线保护'}"
             )
             return []
-        if strategy.get("mode") != "active":
+        if strategy.get("mode") != "active" and not force_cleanup:
             logger.info(
                 f"智能删种任务 [{task.name}] {strategy.get('mode_label')}："
                 f"仅记录 {len(delete_hashes)} 个计划，不调用下载器"
             )
             return []
+        if force_cleanup:
+            logger.warning(
+                f"刷流任务 [{task.name}] 执行手动安全清理：仅绕过观察期与删除额度，"
+                "全部硬安全线仍然生效"
+            )
         for torrent_hash in delete_hashes:
             logger.info(
                 f"智能删种任务 [{task.name}] 已通过 9.0 守门，准备删除："

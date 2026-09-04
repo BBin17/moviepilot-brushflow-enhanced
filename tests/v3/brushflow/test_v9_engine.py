@@ -55,6 +55,23 @@ def balanced_policy(**overrides):
     return decision.SmartPolicy(**values)
 
 
+def test_manual_cleanup_policy_only_expands_limits():
+    original = balanced_policy(
+        max_delete_per_run=3,
+        max_delete_percent_day=5,
+        max_delete_capacity_percent_run=4,
+        max_delete_capacity_percent_day=8,
+    )
+    manual = decision.manual_cleanup_policy(original)
+
+    assert manual.max_delete_per_run == 10
+    assert manual.max_delete_percent_day == 100
+    assert manual.max_delete_capacity_percent_run == 25
+    assert manual.max_delete_capacity_percent_day == 100
+    assert manual.min_seed_time_hours == original.min_seed_time_hours
+    assert manual.excluded_tags == original.excluded_tags
+
+
 class SelectionTests(unittest.TestCase):
     def test_explicit_minimum_size_is_always_enforced(self):
         self.assertFalse(decision.size_range_matches(0.49 * GIB, "0.5"))
@@ -171,6 +188,26 @@ class DeletionTests(unittest.TestCase):
             disk_limit=100 * GIB,
         )
         self.assertEqual(len(result.selected), 1)
+
+    def test_manual_cleanup_keeps_hard_protection(self):
+        policy = decision.manual_cleanup_policy(balanced_policy())
+        result = decision.select_deletions(
+            [
+                cold_seed("safe", 3),
+                cold_seed("unfinished", 3, downloaded=1, progress=0),
+                cold_seed("uploading", 3, upload_delta_since_check=1),
+            ],
+            policy,
+            current_size=120 * GIB,
+            disk_limit=100 * GIB,
+            deleted_today=0,
+            deleted_today_bytes=0,
+        )
+
+        self.assertEqual([row.torrent_hash for row in result.selected], ["safe"])
+        by_hash = {row.torrent_hash: row for row in result.evaluated}
+        self.assertEqual(by_hash["unfinished"].reason_codes, ("incomplete",))
+        self.assertEqual(by_hash["uploading"].reason_codes, ("real_upload",))
         self.assertLessEqual(result.estimated_freed_bytes, 4 * GIB)
 
     def test_severe_over_capacity_still_respects_normal_capacity_cap(self):

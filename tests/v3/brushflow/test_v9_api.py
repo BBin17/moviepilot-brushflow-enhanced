@@ -56,6 +56,21 @@ def test_strategy_operation_respects_task_lock():
     assert "执行" in response.message
 
 
+def test_force_cleanup_uses_the_unified_action_entrypoint():
+    task = smart_task()
+    plugin = make_plugin(task)
+    submitted = []
+    plugin._submit_task_operation = lambda task_id, operation: submitted.append((task_id, operation)) or SimpleNamespace(
+        success=True,
+        message="任务已提交",
+    )
+
+    response = plugin.run_task_action(task.id, "force_cleanup")
+
+    assert response.success is True
+    assert submitted == [(task.id, "force_cleanup")]
+
+
 def test_false_positive_gate_auto_extends_shadow():
     task = smart_task(smart_shadow_until=time.time() - 1)
     plugin = make_plugin(task)
