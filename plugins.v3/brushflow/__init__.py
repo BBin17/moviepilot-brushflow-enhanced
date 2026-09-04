@@ -1814,6 +1814,19 @@ class BrushFlow(_PluginBase):
         health = presentation["health"]
         recommended_actions = presentation["recommended_actions"]
         download_issue_count = presentation["download_issue_count"]
+        download_issues = [
+            {
+                "hash": str(torrent_hash),
+                "title": row.get("title") or str(torrent_hash),
+                "size": float(row.get("size") or row.get("total_size") or 0),
+                "state": row.get("download_health") or HEALTH_UNKNOWN,
+                "label": row.get("download_health_label") or health_label(row.get("download_health")),
+                "reason": row.get("download_health_reason"),
+            }
+            for torrent_hash, row in torrents.items()
+            if not row.get("deleted")
+            and row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_QUEUED, HEALTH_ERROR, HEALTH_PAUSED}
+        ][:50]
         ui_summary = {
             "health": health,
             "capacity": {
@@ -1840,6 +1853,7 @@ class BrushFlow(_PluginBase):
                 "queued_count": int(download_health.get("queued_count") or 0),
                 "error_count": int(download_health.get("error_count") or 0),
                 "paused_count": int(download_health.get("paused_count") or 0),
+                "issues": download_issues,
             },
             "recommended_actions": recommended_actions,
         }
