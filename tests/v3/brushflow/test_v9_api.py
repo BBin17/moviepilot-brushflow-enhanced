@@ -29,6 +29,7 @@ def smart_task(**overrides):
             "site_id": 1,
             "downloader": "qb",
             "min_seed_time": 48,
+            "disksize": 100,
             "smart_enabled": True,
             "smart_shadow_until": time.time() + 48 * 3600,
             **overrides,

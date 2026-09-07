@@ -1,0 +1,34 @@
+[project]
+name = "brushflow-development"
+version = "0.0.0"
+description = "Offline development and test environment; not a separately installed MoviePilot package"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "apscheduler>=3.11,<4",
+    "fastapi>=0.115,<1",
+    "pydantic>=2.10,<3",
+    "pytest>=8.3,<10",
+    "pytest-cov>=6,<8",
+    "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["host: requires a pinned real MoviePilot V3 checkout and dependencies"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"plugins.v3/brushflow/host.py" = ["F401"]

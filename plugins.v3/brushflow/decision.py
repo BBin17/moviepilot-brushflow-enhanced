@@ -284,6 +284,33 @@ class SelectionResult:
     recovery_active: bool = False
     run_byte_cap: float = 0.0
     daily_byte_cap: float = 0.0
+    run_count_cap: int = 0
+    daily_count_cap: int = 0
+    remaining_daily_count: int = 0
+    remaining_daily_bytes: float = 0.0
+
+
+def capacity_recovery_state(
+    current_size: float, disk_limit: Optional[float], policy: SmartPolicy, *,
+    previous: Optional[Mapping[str, Any]] = None, now: Optional[float] = None,
+) -> dict:
+    """Task-local hysteresis; quota waits/observation must not clear the latch.
+
+    Only observed capacity at/below the target ends recovery, never a projected
+    post-deletion value. No downloader I/O or persistence occurs here.
+    """
+    previous = previous or {}
+    limit = _positive(disk_limit)
+    trigger = limit * policy.capacity_trigger_percent / 100 if limit else None
+    target = limit * policy.capacity_target_percent / 100 if limit else None
+    valid = trigger is not None and target is not None and 0 <= target < trigger
+    active = bool(valid and current_size > target and (current_size >= trigger or previous.get("active")))
+    return {
+        "active": active, "current_bytes": max(current_size, 0), "limit_bytes": limit,
+        "trigger_bytes": trigger, "target_bytes": target,
+        "started_at": (previous.get("started_at") or now) if active else None,
+        "updated_at": now,
+    }
 
 
 def manual_cleanup_policy(policy: SmartPolicy) -> SmartPolicy:
@@ -673,7 +700,8 @@ def evaluate_candidate(
 ) -> DecisionResult:
     if not isinstance(observation, TorrentObservation):
         observation = TorrentObservation.from_mapping(observation)
-    blocked = lambda code: DecisionResult(observation.torrent_hash, "blocked", 100.0, (code,))
+    def blocked(code):
+        return DecisionResult(observation.torrent_hash, "blocked", 100.0, (code,))
     if not observation.completed:
         return blocked("incomplete")
     if observation.hit_and_run:
@@ -725,6 +753,7 @@ def select_deletions(
     history: Sequence[Mapping[str, Any]] = (),
     deleted_today: int = 0,
     deleted_today_bytes: float = 0.0,
+    recovery_active: bool = False,
 ) -> SelectionResult:
     normalized = [
         item if isinstance(item, TorrentObservation) else TorrentObservation.from_mapping(item)
@@ -733,7 +762,12 @@ def select_deletions(
     trigger = max_size
     if trigger is None and disk_limit:
         trigger = disk_limit * max(min(policy.capacity_trigger_percent, 100.0), 0.0) / 100.0
-    pressure = bool(trigger is not None and current_size >= trigger)
+    target_size = min_size
+    if target_size is None and disk_limit:
+        target_size = disk_limit * max(min(policy.capacity_target_percent, 100.0), 0.0) / 100.0
+    pressure = bool(
+        trigger is not None and (current_size >= trigger or (recovery_active and target_size is not None and current_size > target_size))
+    )
     capacity_base_for_pressure = disk_limit or trigger
     capacity_ratio = (
         max(current_size / capacity_base_for_pressure, 0.0)
@@ -741,7 +775,7 @@ def select_deletions(
         else (1.0 if pressure else 0.0)
     )
     capacity_pressure = min(capacity_ratio, 4.0)
-    recovery_active = bool(disk_limit and capacity_ratio > 1.0)
+    recovery_active = bool(pressure and target_size is not None and current_size > target_size)
     normalized = [
         TorrentObservation(**{**item.__dict__, "capacity_pressure": capacity_pressure})
         for item in normalized
@@ -762,9 +796,6 @@ def select_deletions(
             capacity_ratio=capacity_ratio,
         )
 
-    target_size = min_size
-    if target_size is None and disk_limit:
-        target_size = disk_limit * max(min(policy.capacity_target_percent, 100.0), 0.0) / 100.0
     if target_size is None:
         return SelectionResult(
             evaluated=evaluated,
@@ -783,10 +814,12 @@ def select_deletions(
             -by_hash[result.torrent_hash].total_size,
         )
     )
-    active_count = len(normalized)
+    # Removing a seed must not shrink the denominator and retroactively exhaust
+    # the same rolling-window quota. Restored/new seeds remain task-local.
+    active_count = len(normalized) + max(deleted_today, 0)
     daily_count_cap = (
         max(1, math.floor(active_count * policy.max_delete_percent_day / 100.0))
-        if policy.max_delete_percent_day > 0 else len(eligible)
+        if policy.max_delete_percent_day > 0 else len(eligible) + max(deleted_today, 0)
     )
     remaining_count = max(daily_count_cap - max(deleted_today, 0), 0)
     run_count_cap = max(int(policy.max_delete_per_run), 0)
@@ -806,33 +839,39 @@ def select_deletions(
     ) if day_percent_cap > 0 or day_explicit_cap > 0 else 0.0
     remaining_daily_bytes = max(daily_byte_cap - max(deleted_today_bytes, 0.0), 0.0)
     selected: list[DecisionResult] = []
+    reasons: list[str] = []
     freed = 0.0
     remaining_size = current_size
     for result in eligible:
-        if len(selected) >= min(run_count_cap, remaining_count) or remaining_size <= target_size:
+        if remaining_size <= target_size:
+            break
+        if len(selected) >= run_count_cap:
+            reasons.extend(("run_count_cap", "run_cap"))
+            break
+        if len(selected) >= remaining_count:
+            reasons.append("daily_count_cap")
             break
         size = by_hash[result.torrent_hash].total_size
         if run_byte_cap > 0 and freed + size > run_byte_cap:
+            reasons.append("run_byte_cap")
             continue
         if daily_byte_cap > 0 and freed + size > remaining_daily_bytes:
+            reasons.append("daily_byte_cap")
             continue
         selected.append(result)
         freed += size
         remaining_size = max(remaining_size - size, 0.0)
 
-    reasons: list[str] = []
-    if not selected:
+    if not eligible:
         reasons.append("no_low_value_candidate")
-    if run_count_cap and len(selected) >= run_count_cap and len(selected) < len(eligible):
-        reasons.extend(("run_count_cap", "run_cap"))
-    if remaining_count <= 0:
+    if eligible and remaining_count <= 0:
         reasons.append("daily_count_cap")
-    if eligible and not selected and (run_byte_cap <= 0 or remaining_daily_bytes <= 0):
-        reasons.append("byte_cap")
+    if eligible and not selected and {"run_byte_cap", "daily_byte_cap"}.intersection(reasons):
+        reasons.append("candidate_exceeds_remaining_bytes")
     return SelectionResult(
         selected=tuple(selected),
         evaluated=evaluated,
-        reason_codes=tuple(reasons),
+        reason_codes=tuple(dict.fromkeys(reasons)),
         pressure=True,
         target_size=target_size,
         estimated_freed_bytes=freed,
@@ -841,4 +880,8 @@ def select_deletions(
         recovery_active=recovery_active,
         run_byte_cap=run_byte_cap,
         daily_byte_cap=daily_byte_cap,
+        run_count_cap=run_count_cap,
+        daily_count_cap=daily_count_cap,
+        remaining_daily_count=remaining_count,
+        remaining_daily_bytes=remaining_daily_bytes,
     )

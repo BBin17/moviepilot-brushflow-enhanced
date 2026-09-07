@@ -120,6 +120,45 @@ class SelectionTests(unittest.TestCase):
 
 
 class DeletionTests(unittest.TestCase):
+    def test_recovery_latches_until_target_and_is_task_local(self):
+        policy = balanced_policy()
+        state = decision.capacity_recovery_state(91 * GIB, 100 * GIB, policy, now=100)
+        self.assertTrue(state["active"])
+        state = decision.capacity_recovery_state(89 * GIB, 100 * GIB, policy, previous=state, now=200)
+        self.assertTrue(state["active"])
+        self.assertEqual(state["started_at"], 100)
+        result = decision.select_deletions([cold_seed("safe")], policy,
+            current_size=89 * GIB, disk_limit=100 * GIB, recovery_active=state["active"])
+        self.assertEqual(len(result.selected), 1)
+        self.assertTrue(result.recovery_active)
+        other = decision.capacity_recovery_state(89 * GIB, 100 * GIB, policy)
+        self.assertFalse(other["active"])
+        state = decision.capacity_recovery_state(85 * GIB, 100 * GIB, policy, previous=state)
+        self.assertFalse(state["active"])
+
+    def test_oversized_candidate_is_not_misreported_as_absent(self):
+        result = decision.select_deletions([cold_seed("five", 5)],
+            balanced_policy(max_delete_capacity_percent_run=4), current_size=95 * GIB, disk_limit=100 * GIB)
+        self.assertEqual(result.selected, ())
+        self.assertNotIn("no_low_value_candidate", result.reason_codes)
+        self.assertIn("run_byte_cap", result.reason_codes)
+        self.assertIn("candidate_exceeds_remaining_bytes", result.reason_codes)
+
+    def test_day_bytes_are_distinct_from_run_bytes(self):
+        result = decision.select_deletions([cold_seed("three", 3)],
+            balanced_policy(max_delete_capacity_percent_run=4, max_delete_capacity_percent_day=8),
+            current_size=95 * GIB, disk_limit=100 * GIB, deleted_today_bytes=6 * GIB)
+        self.assertIn("daily_byte_cap", result.reason_codes)
+        self.assertNotIn("run_byte_cap", result.reason_codes)
+        self.assertEqual(result.remaining_daily_bytes, 2 * GIB)
+
+    def test_deleting_seeds_does_not_shrink_rolling_count_denominator(self):
+        result = decision.select_deletions([cold_seed(str(i), 0.1) for i in range(96)],
+            balanced_policy(max_delete_percent_day=5), current_size=95 * GIB, disk_limit=100 * GIB,
+            deleted_today=4)
+        self.assertEqual(result.daily_count_cap, 5)
+        self.assertEqual(len(result.selected), 1)
+
     def test_single_stale_leecher_does_not_permanently_protect(self):
         seed = cold_seed("stale", leechers=1)
         result = decision.evaluate_candidate(

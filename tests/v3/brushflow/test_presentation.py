@@ -56,8 +56,8 @@ def test_paused_and_healthy_are_distinct():
 
 
 def test_deletion_quota_message_names_the_exact_limits():
-    assert presentation.deletion_quota_message(["daily_count_cap"]) == "每日删除数量额度已用尽"
+    assert presentation.deletion_quota_message(["daily_count_cap"]) == "过去24小时删除数量额度已用尽"
     assert presentation.deletion_quota_message(["byte_cap", "run_count_cap"]) == (
-        "本轮或每日释放容量额度已用尽、本轮删除数量额度已用尽"
+        "本轮或过去24小时释放容量额度不足、本轮删除数量额度已用尽"
     )
     assert presentation.deletion_quota_message(["min_seed_time"]) == ""

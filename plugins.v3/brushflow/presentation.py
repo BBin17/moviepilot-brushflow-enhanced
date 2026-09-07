@@ -6,8 +6,11 @@ from typing import Any, Mapping, Optional
 
 
 QUOTA_REASON_LABELS = {
-    "byte_cap": "本轮或每日释放容量额度已用尽",
-    "daily_count_cap": "每日删除数量额度已用尽",
+    "byte_cap": "本轮或过去24小时释放容量额度不足",
+    "run_byte_cap": "本轮剩余释放容量不足",
+    "daily_byte_cap": "过去24小时剩余释放容量不足",
+    "candidate_exceeds_remaining_bytes": "剩余容量额度装不下任何合格候选",
+    "daily_count_cap": "过去24小时删除数量额度已用尽",
     "run_count_cap": "本轮删除数量额度已用尽",
 }
 

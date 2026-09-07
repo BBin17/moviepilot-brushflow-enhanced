@@ -13,36 +13,21 @@ from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urljoin, urlpa
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import Query
 
-from app import schemas
-from app.api.endpoints.plugin import register_plugin_api
-from app.chain.torrents import TorrentsChain
-from app.sdk.config import settings
-from app.sdk.media import MediaInfo
-from app.sdk.events import Event, eventmanager
-from app.sdk.media import MetaInfo
-from app.db.oper.site import SiteOper
-from app.db.oper.subscribe import SubscribeOper
-from app.sdk.services import DownloaderHelper
-from app.sdk.network import SitesHelper
-from app.runtime.thread import ThreadHelper
-from app.sdk.logging import logger
-from app.modules.qbittorrent import Qbittorrent
-from app.modules.transmission import Transmission
-from app.plugins import _PluginBase
-from app.scheduler import Scheduler
-from app.schemas import MediaType, NotificationType, ServiceInfo, TorrentInfo
-from app.schemas.types import EventType
-from app.sdk.network import RequestUtils
-from app.sdk.utilities import StringUtils
+from .host import (
+    schemas, register_plugin_api, TorrentsChain, settings, MediaInfo, Event, eventmanager,
+    MetaInfo, SiteOper, SubscribeOper, DownloaderHelper, SitesHelper, ThreadHelper, logger,
+    Qbittorrent, Transmission, _PluginBase, Scheduler, MediaType, NotificationType,
+    ServiceInfo, TorrentInfo, EventType, RequestUtils, StringUtils,
+)
 
 from .models import BrushFlowSettingsPayload
 from .signin import signin_site, success_message
 from .version import __version__
 from .decision import (
     SmartPolicy,
-    TorrentObservation,
     adaptive_selection_policy,
     candidate_score,
+    capacity_recovery_state,
     capacity_selection_policy,
     detect_invalid_seed,
     manual_cleanup_policy,
@@ -60,24 +45,19 @@ from .learning import (
 )
 from .download_health import (
     DownloadHealthPolicy,
-    HEALTH_COMPLETED,
-    HEALTH_CHECKING,
-    HEALTH_DOWNLOADING,
     HEALTH_ERROR,
     HEALTH_PAUSED,
     HEALTH_QUEUED,
     HEALTH_SLOW,
     HEALTH_STALLED,
     HEALTH_UNKNOWN,
-    append_download_sample,
-    assess_download_health,
     health_label,
-    next_health_action,
     policy_for_profile,
 )
 from .v9 import TaskConfigV9, migrate_task_rows_v9
 from .presentation import build_health_summary, deletion_quota_message
 from .repository import TaskRepository
+from .health_service import DownloadHealthService
 
 
 TASK_CONFIG_FIELDS = (
@@ -380,6 +360,7 @@ class BrushFlow(_PluginBase):
         "learning_state",
         "decision_audit",
         "strategy_state",
+        "capacity_recovery",
         "download_health",
         "invalid_seed_history",
         "invalid_seed_plan",
@@ -832,35 +813,28 @@ class BrushFlow(_PluginBase):
             return schemas.Response(success=False, message="任务正在执行，请稍后再操作")
         if action in {"retry_stalled", "pause_stalled"}:
             torrents = self._get_task_data(task_id, "torrents") or {}
+            health_store = self._get_task_data(task_id, "download_health") or {}
             hashes = [
                 str(torrent_hash)
                 for torrent_hash, row in torrents.items()
                 if isinstance(row, dict)
                 and not row.get("deleted")
-                and row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_PAUSED}
+                and (row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW}
+                     or (row.get("download_health") == HEALTH_PAUSED and health_store.get(str(torrent_hash), {}).get("paused_at")))
             ]
             if not hashes:
                 return schemas.Response(success=True, message="当前没有需要处理的异常下载", data=self._build_task_overview(task_id))
             with self._task_scope(task_id):
-                self.__apply_download_health_actions(
+                outcomes = self.__apply_download_health_actions(
                     hashes if action == "retry_stalled" else [],
                     hashes if action == "pause_stalled" else [],
                 )
-            health_store = self._get_task_data(task_id, "download_health") or {}
             now = time.time()
-            for torrent_hash in hashes:
-                record = health_store.get(torrent_hash)
-                if not isinstance(record, dict):
-                    continue
-                if action == "retry_stalled":
-                    record.update({"repair_at": now, "paused_at": None})
-                else:
-                    record["paused_at"] = now
-            self._save_task_data(task_id, "download_health", health_store)
-            self._append_decision_audit(task_id, {"at": now, "kind": "task_action", "action": action, "hashes": hashes})
+            successful = sum(bool(item.get("success")) for item in outcomes.values())
+            self._append_decision_audit(task_id, {"at": now, "kind": "task_action", "action": action, "outcomes": outcomes})
             return schemas.Response(
-                success=True,
-                message="异常下载已重新汇报并恢复" if action == "retry_stalled" else "异常下载已暂停并保留数据",
+                success=successful == len(hashes),
+                message=f"下载健康操作已确认 {successful}/{len(hashes)} 个；未成功的操作请查看下载健康详情",
                 data=self._build_task_overview(task_id),
             )
         now = time.time()
@@ -2341,6 +2315,15 @@ class BrushFlow(_PluginBase):
                     f"超过任务保种上限 {task.disksize} GB"
                 )
                 return False, reason
+            recovery = capacity_recovery_state(
+                torrents_size, limit_size, self._smart_policy(task),
+                previous=self._get_task_data(task.id, "capacity_recovery") or {},
+            )
+            if recovery["active"]:
+                return False, (
+                    f"空间恢复中，暂停新增；当前 {self.__bytes_to_gb(torrents_size):.1f} GB，"
+                    f"需回落至 {self.__bytes_to_gb(recovery['target_bytes']):.1f} GB"
+                )
         global_disksize = getattr(self, "_global_disksize", None)
         if global_disksize:
             if global_torrents_size is None:
@@ -2880,216 +2863,38 @@ class BrushFlow(_PluginBase):
             }
         )
 
-    def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> None:
-        """更新当前任务种子的上下传、分享率、做种时间和下载健康"""
+    def _health_service(self) -> DownloadHealthService:
         task = self._get_task_config()
         document = self._task_documents.get(task.id) if task else None
-        if document:
-            health_policy = DownloadHealthPolicy(
-                stalled_confirmations=document.health.stalled_confirmations,
-                stalled_window_minutes=document.health.stalled_window_minutes,
-                slow_after_hours=document.health.slow_after_hours,
-                slow_speed_kbps=document.health.slow_speed_kbps,
-            )
-        else:
-            health_policy = policy_for_profile(task.smart_profile if task else "balanced")
-        health_store = self._current_task_data("download_health", {})
-        if not isinstance(health_store, dict):
-            health_store = {}
-        now = time.time()
-        repair_hashes: List[str] = []
-        pause_hashes: List[str] = []
-        for torrent in torrents:
-            torrent_hash = self.__get_hash(torrent)
-            torrent_task = torrent_tasks.get(torrent_hash)
-            if not torrent_task:
-                continue
-            torrent_info = self.__get_torrent_info(torrent)
-            total_size = float(torrent_info.get("total_size") or 0)
-            completed_bytes = float(
-                torrent_info.get("completed")
-                if torrent_info.get("completed") is not None
-                else torrent_info.get("downloaded") or 0
-            )
-            is_completed = bool(total_size > 0 and completed_bytes >= total_size)
-            current_sample = {
-                "at": now,
-                "downloaded": completed_bytes,
-                "total_size": total_size,
-                "download_speed": torrent_info.get("download_speed", 0),
-                "active_peers": torrent_info.get("active_peers"),
-                "availability": torrent_info.get("availability"),
-                "is_paused": torrent_info.get("is_paused", False),
-                "downloader_state": torrent_info.get("downloader_state", ""),
-                "completed": is_completed,
-            }
-            health_record = health_store.get(torrent_hash)
-            if not isinstance(health_record, dict):
-                health_record = {}
-            samples = append_download_sample(
-                health_record.get("samples", []),
-                current_sample,
-                now=now,
-                policy=health_policy,
-            )
-            health = assess_download_health(samples, current_sample, policy=health_policy, now=now)
-            previous_state = health_record.get("state")
-            state_since = (
-                float(health_record.get("state_since") or now)
-                if previous_state == health.get("state")
-                else now
-            )
-            transition = next_health_action(
-                health.get("state", HEALTH_UNKNOWN),
-                health.get("progress_delta", 0),
-                repair_at=health_record.get("repair_at"),
-                paused_at=health_record.get("paused_at"),
-                now=now,
-                policy=health_policy,
-            )
-            if transition["action"] == "repair" and document and not document.health.auto_repair:
-                transition = {
-                    "action": None,
-                    "repair_at": health_record.get("repair_at"),
-                    "paused_at": health_record.get("paused_at"),
-                }
-            if transition["action"] == "pause" and document and not document.health.pause_after_failed_repair:
-                transition = {
-                    "action": None,
-                    "repair_at": health_record.get("repair_at"),
-                    "paused_at": health_record.get("paused_at"),
-                }
-            repair_at = transition["repair_at"]
-            paused_at = transition["paused_at"]
-            if document and document.health.auto_repair and transition["action"] == "repair":
-                repair_hashes.append(torrent_hash)
-            if document and document.health.pause_after_failed_repair and transition["action"] == "pause":
-                pause_hashes.append(torrent_hash)
-            health_store[torrent_hash] = {
-                "hash": torrent_hash,
-                "state": health.get("state", HEALTH_UNKNOWN),
-                "reason": health.get("reason", "insufficient_history"),
-                "state_since": state_since,
-                "updated_at": now,
-                "samples": samples,
-                "repair_at": repair_at,
-                "paused_at": paused_at,
-            }
-            torrent_task.update(
-                {
-                    "downloaded": torrent_info.get("downloaded"),
-                    "uploaded": torrent_info.get("uploaded"),
-                    "ratio": torrent_info.get("ratio"),
-                    "seeding_time": torrent_info.get("seeding_time"),
-                    "download_speed": torrent_info.get("download_speed", 0),
-                    "download_completed_bytes": completed_bytes,
-                    "download_health": health.get("state", HEALTH_UNKNOWN),
-                    "download_health_label": health_label(health.get("state", HEALTH_UNKNOWN)),
-                    "download_health_reason": health.get("reason", "insufficient_history"),
-                    "download_health_since": state_since,
-                    "download_health_avg_kbps": health.get("avg_download_speed_kbps", 0),
-                    "download_health_progress_delta": health.get("progress_delta", 0),
-                    "download_health_checked_at": now,
-                }
-            )
-        self._save_current_task_data("download_health", health_store)
-        self.__apply_download_health_actions(repair_hashes, pause_hashes)
+        policy = DownloadHealthPolicy(
+            stalled_confirmations=document.health.stalled_confirmations,
+            stalled_window_minutes=document.health.stalled_window_minutes,
+            slow_after_hours=document.health.slow_after_hours,
+            slow_speed_kbps=document.health.slow_speed_kbps,
+            max_sample_gap_minutes=max(60, document.schedule.check_interval * 2),
+        ) if document else policy_for_profile(task.smart_profile if task else "balanced")
+        return DownloadHealthService(
+            downloader=self.downloader,
+            read=self._current_task_data,
+            write=self._save_current_task_data,
+            identify=self.__get_hash,
+            normalize=self.__get_torrent_info,
+            notify=self.__send_message,
+            policy=policy,
+            auto_repair=bool(document and document.health.auto_repair),
+            pause_after_failed_repair=bool(document and document.health.pause_after_failed_repair),
+            clock=time.time,
+        )
 
-    def __apply_download_health_actions(self, repair_hashes: List[str], pause_hashes: List[str]) -> None:
-        """对异常未完成任务修复一次，持续失败后暂停；绝不删除数据。"""
-        downloader = self.downloader
-        qbc = getattr(downloader, "qbc", None) if downloader else None
-        if not qbc:
-            return
-        if repair_hashes:
-            hashes = "|".join(repair_hashes)
-            try:
-                qbc.torrents_reannounce(torrent_hashes=hashes)
-                starter = getattr(qbc, "torrents_start", None) or getattr(qbc, "torrents_resume", None)
-                if starter:
-                    starter(torrent_hashes=hashes)
-                logger.info(f"下载健康自动修复：已重新汇报并恢复 {len(repair_hashes)} 个未完成任务")
-            except Exception as err:
-                logger.warning(f"下载健康自动修复失败：{str(err)}")
-        if pause_hashes:
-            hashes = "|".join(pause_hashes)
-            try:
-                stopper = getattr(qbc, "torrents_stop", None) or getattr(qbc, "torrents_pause", None)
-                if stopper:
-                    stopper(torrent_hashes=hashes)
-                logger.warning(f"下载健康：{len(pause_hashes)} 个任务修复后仍无进展，已暂停并保留数据")
-                self.__send_message(
-                    "【刷流任务下载异常】",
-                    f"{len(pause_hashes)} 个未完成任务自动修复后仍无进展，已暂停；下载数据完整保留。",
-                )
-            except Exception as err:
-                logger.warning(f"暂停异常下载失败：{str(err)}")
+    def __update_torrent_tasks_state(self, torrents: List[Any], torrent_tasks: Dict[str, dict]) -> None:
+        self._health_service().observe(torrents, torrent_tasks)
+
+    def __apply_download_health_actions(self, repair_hashes: List[str], pause_hashes: List[str]) -> dict:
+        return self._health_service().apply(repair_hashes, pause_hashes)
 
     @staticmethod
     def _build_download_health_summary(torrent_tasks: Dict[str, dict]) -> Dict[str, Any]:
-        """从任务记录汇总卡住、低速和观察中的未完成下载。"""
-        active_rows = [
-            (str(torrent_hash), row)
-            for torrent_hash, row in torrent_tasks.items()
-            if isinstance(row, dict) and not row.get("deleted")
-        ]
-        stalled = [row for _, row in active_rows if row.get("download_health") == HEALTH_STALLED]
-        slow = [row for _, row in active_rows if row.get("download_health") == HEALTH_SLOW]
-        items = sorted(
-            [
-                (torrent_hash, row)
-                for torrent_hash, row in active_rows
-                if row.get("download_health") in {
-                    HEALTH_STALLED,
-                    HEALTH_SLOW,
-                    HEALTH_QUEUED,
-                    HEALTH_ERROR,
-                }
-            ],
-            key=lambda item: (
-                {
-                    HEALTH_STALLED: 0,
-                    HEALTH_SLOW: 1,
-                    HEALTH_ERROR: 2,
-                    HEALTH_QUEUED: 3,
-                }.get(item[1].get("download_health"), 4),
-                -float(item[1].get("download_health_since") or 0),
-            ),
-        )
-        return {
-            "stalled_count": len(stalled),
-            "slow_count": len(slow),
-            "queued_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_QUEUED),
-            "checking_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_CHECKING),
-            "error_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_ERROR),
-            "paused_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_PAUSED),
-            "observed_count": sum(
-                1
-                for _, row in active_rows
-                if row.get("download_health") in {
-                    HEALTH_UNKNOWN,
-                    HEALTH_DOWNLOADING,
-                    HEALTH_PAUSED,
-                    HEALTH_QUEUED,
-                    HEALTH_CHECKING,
-                    HEALTH_ERROR,
-                }
-            ),
-            "items": [
-                {
-                    "hash": torrent_hash,
-                    "title": row.get("title"),
-                    "state": row.get("download_health"),
-                    "label": row.get("download_health_label") or health_label(row.get("download_health", HEALTH_UNKNOWN)),
-                    "reason": row.get("download_health_reason"),
-                    "since": row.get("download_health_since"),
-                    "avg_kbps": row.get("download_health_avg_kbps", 0),
-                    "progress_delta": row.get("download_health_progress_delta", 0),
-                    "size": row.get("size", 0),
-                }
-                for torrent_hash, row in items[:20]
-            ],
-        }
+        return DownloadHealthService.summarize(torrent_tasks)
 
     def __update_seeding_tasks_based_on_tags(
         self,
@@ -3360,6 +3165,11 @@ class BrushFlow(_PluginBase):
         )
         current_size = self.__calculate_seeding_torrents_size(torrent_tasks)
         policy = self._smart_policy(task)
+        recovery = capacity_recovery_state(
+            current_size, disk_limit, policy,
+            previous=self._get_task_data(task.id, "capacity_recovery") or {}, now=now,
+        )
+        self._save_task_data(task.id, "capacity_recovery", recovery)
         if force_cleanup:
             policy = manual_cleanup_policy(policy)
         selection = select_deletions(
@@ -3372,6 +3182,7 @@ class BrushFlow(_PluginBase):
             history=history_before_current,
             deleted_today=0 if force_cleanup else deleted_today,
             deleted_today_bytes=0.0 if force_cleanup else deleted_today_bytes,
+            recovery_active=recovery["active"],
         )
 
         evaluated_by_hash = {result.torrent_hash: result for result in selection.evaluated}
@@ -3444,6 +3255,10 @@ class BrushFlow(_PluginBase):
                 "recovery_active": selection.recovery_active,
                 "run_byte_cap": selection.run_byte_cap,
                 "daily_byte_cap": selection.daily_byte_cap,
+                "run_count_cap": selection.run_count_cap,
+                "daily_count_cap": selection.daily_count_cap,
+                "remaining_daily_count": selection.remaining_daily_count,
+                "remaining_daily_bytes": selection.remaining_daily_bytes,
                 "reason_codes": list(selection.reason_codes),
                 "selected": [
                     {

@@ -10,9 +10,7 @@ import re
 from typing import Any, Dict, Tuple
 from urllib.parse import urljoin, urlparse
 
-from app.sdk.config import settings
-from app.sdk.logging import logger
-from app.sdk.network import RequestUtils
+from .host import settings, logger, RequestUtils
 
 
 SIGNED_MARKERS = (
