@@ -975,25 +975,34 @@ class SmartBrushFlow(_PluginBase):
         unmanaged = self._get_task_data(task_id, "unmanaged") or {}
         by_hash = {self.__get_hash(torrent): torrent for torrent in torrents if self.__get_hash(torrent)}
         with self._task_scope(task_id):
-            result = self.__update_seeding_tasks_based_on_tags(current, unmanaged, by_hash)
+            result = self.__update_seeding_tasks_based_on_tags(current, unmanaged, by_hash, service=service)
         self._save_task_data(task_id, "torrents", current)
         self._save_task_data(task_id, "unmanaged", unmanaged)
         self._recalculate_statistics(task_id)
         restored_count = int(result.get("restored_count") or 0)
         restored_bytes = float(result.get("restored_bytes") or 0)
+        tagged_count = int(result.get("tagged_count") or 0)
         self._append_decision_audit(task_id, {
             "at": time.time(),
             "kind": "restore_existing",
             "restored_count": restored_count,
             "restored_bytes": restored_bytes,
+            "tagged_count": tagged_count,
+            "tagged_tag": result.get("tagged_tag"),
             "legacy_tags": True,
         })
         return schemas.Response(
             success=True,
-            message=f"已接管 {restored_count} 个历史种子" if restored_count else "没有找到可接管的历史种子",
+            message=(
+                f"已接管 {restored_count} 个历史种子，补回 {tagged_count} 个管理标签"
+                if restored_count or tagged_count
+                else "没有找到可接管的历史种子"
+            ),
             data={
                 "restored_count": restored_count,
                 "restored_bytes": restored_bytes,
+                "tagged_count": tagged_count,
+                "tagged_tag": result.get("tagged_tag"),
                 "task": self._build_task_overview(task_id),
             },
         )
@@ -1233,6 +1242,27 @@ class SmartBrushFlow(_PluginBase):
             return False
         client.torrents_delete_tags(tags=tags)
         return True
+
+    @staticmethod
+    def _add_qbittorrent_tag(service: Any, torrent_hashes: List[str], tag: str) -> int:
+        """为已明确识别的历史种子补回当前任务标签。
+
+        qB 的标签是种子属性，不是全局标签定义。接管历史种子时只新增当前
+        插件的唯一标签，保留旧标签和用户标签；没有可靠的历史标签匹配时
+        不会调用这里，因此不会把普通下载误纳入刷流任务。
+        """
+        client = getattr(getattr(service, "instance", None), "qbc", None)
+        hashes = list(dict.fromkeys(str(item) for item in torrent_hashes if item))
+        if not client or not hashes or not tag:
+            return 0
+        try:
+            # qBittorrent Web API 使用 | 分隔多个 hash，避免不同 qB 客户端
+            # 对 list 参数的序列化差异。
+            client.torrents_add_tags(torrent_hashes="|".join(hashes), tags=tag)
+            return len(hashes)
+        except Exception as err:
+            logger.warning(f"补回 qBittorrent 刷流管理标签失败：{str(err)}")
+            return 0
 
     def _cleanup_unused_task_tag(
         self,
@@ -2876,16 +2906,19 @@ class SmartBrushFlow(_PluginBase):
         torrent_tasks: Dict[str, dict],
         unmanaged_tasks: Dict[str, dict],
         seeding_torrents_dict: Dict[str, Any],
+        service: Any = None,
     ) -> Dict[str, int]:
         """按任务唯一标签同步 qBittorrent 中的纳管和移除状态"""
         task = self._get_task_config()
-        if not task or not DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
-            return {"restored_count": 0, "restored_bytes": 0}
+        service = service or self.service_info
+        if not task or not DownloaderHelper().is_downloader("qbittorrent", service=service):
+            return {"restored_count": 0, "restored_bytes": 0, "tagged_count": 0}
         added_tasks: List[dict] = []
         removed_tasks: List[dict] = []
         reset_tasks: List[dict] = []
         restored_count = 0
         restored_bytes = 0.0
+        tag_restore_hashes: List[str] = []
         legacy_task_tags = self._legacy_task_tags(task)
         for torrent_hash, torrent in seeding_torrents_dict.items():
             tags = self.__get_label(torrent)
@@ -2901,6 +2934,8 @@ class SmartBrushFlow(_PluginBase):
             )
             managed = has_unique_tag or has_legacy_task_tag or (has_global_tag and existing) or adopt_legacy
             if managed:
+                if not has_unique_tag:
+                    tag_restore_hashes.append(torrent_hash)
                 if not existing:
                     torrent_task = unmanaged_tasks.pop(torrent_hash, None) or self.__convert_torrent_info_to_task(torrent)
                     torrent_task.update({"task_id": task.id, "task_name": task.name})
@@ -2916,6 +2951,7 @@ class SmartBrushFlow(_PluginBase):
             elif existing:
                 unmanaged_tasks[torrent_hash] = torrent_tasks.pop(torrent_hash)
                 removed_tasks.append(unmanaged_tasks[torrent_hash])
+        tagged_count = self._add_qbittorrent_tag(service, tag_restore_hashes, task.brush_tag)
         self._save_current_task_data("torrents", torrent_tasks)
         self._save_current_task_data("unmanaged", unmanaged_tasks)
         if added_tasks:
@@ -2930,7 +2966,12 @@ class SmartBrushFlow(_PluginBase):
             self.__log_and_send_torrent_task_update_message(
                 "【刷流任务状态更新】", "恢复为正常", "下载器中仍存在对应种子", reset_tasks
             )
-        return {"restored_count": restored_count, "restored_bytes": int(restored_bytes)}
+        return {
+            "restored_count": restored_count,
+            "restored_bytes": int(restored_bytes),
+            "tagged_count": tagged_count,
+            "tagged_tag": task.brush_tag if tagged_count else None,
+        }
 
     def _legacy_task_tags(self, task: BrushTaskConfig) -> Set[str]:
         """返回旧版任务可能写入的标签，兼容自定义标签和按站点默认标签。"""

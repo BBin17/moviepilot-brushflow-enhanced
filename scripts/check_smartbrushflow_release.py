@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins.v3" / "smartbrushflow"
 PLUGIN_ID = "SmartBrushFlow"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 
 def python_version() -> str:

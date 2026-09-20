@@ -24,7 +24,7 @@ def test_smartbrushflow_is_a_distinct_v3_plugin() -> None:
 
     metadata = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     assert metadata["SmartBrushFlow"]["name"] == "智能刷流"
-    assert metadata["SmartBrushFlow"]["version"] == "1.1.0"
+    assert metadata["SmartBrushFlow"]["version"] == "1.1.1"
     assert metadata["SmartBrushFlow"]["release"] is True
 
 
