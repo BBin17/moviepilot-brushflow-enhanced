@@ -24,7 +24,7 @@ def test_smartbrushflow_is_a_distinct_v3_plugin() -> None:
 
     metadata = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     assert metadata["SmartBrushFlow"]["name"] == "智能刷流"
-    assert metadata["SmartBrushFlow"]["version"] == "1.1.4"
+    assert metadata["SmartBrushFlow"]["version"] == "1.1.5"
     assert metadata["SmartBrushFlow"]["release"] is True
 
 
@@ -46,6 +46,8 @@ def test_qb_temporary_add_tags_are_removed_after_hash_lookup() -> None:
 def test_save_path_is_normalized_to_a_string() -> None:
     source = (PLUGIN / "src" / "v9-ui.js").read_text(encoding="utf-8")
     wizard = (PLUGIN / "src" / "components" / "TaskWizardV9.vue").read_text(encoding="utf-8")
-    assert "savePath.value ?? savePath.path ?? savePath.title" in source
+    assert "[savePath.value, savePath.path, savePath.title]" in source
+    assert "typeof item !== 'function'" in source
+    assert "not callable(candidate)" in (PLUGIN / "__init__.py").read_text(encoding="utf-8")
     assert "normalizePathValue(value)" in wizard
     assert ':return-object="false"' in wizard

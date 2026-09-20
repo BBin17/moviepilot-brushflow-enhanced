@@ -64,7 +64,7 @@ function normalizeTaskV9(task) {
   });
   const savePath = result.identity.save_path;
   result.identity.save_path = savePath && typeof savePath === 'object'
-    ? String(savePath.value ?? savePath.path ?? savePath.title ?? '').trim() || null
+    ? String([savePath.value, savePath.path, savePath.title].find(item => item !== null && item !== undefined && typeof item !== 'function') ?? '').trim() || null
     : String(savePath || '').trim() || null;
   return result
 }
@@ -244,7 +244,8 @@ const siteName = computed$1(() => props.sites.find(item => Number(item.value) ==
 const preview = computed$1(() => taskPreview(draft.value, siteName.value));
 function normalizePathValue(value) {
   if (value && typeof value === 'object') {
-    return String(value.value ?? value.path ?? value.title ?? '').trim() || null
+    const candidate = [value.value, value.path, value.title].find(item => item !== null && item !== undefined && typeof item !== 'function');
+    return String(candidate ?? '').trim() || null
   }
   return String(value ?? '').trim() || null
 }
@@ -1413,7 +1414,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-aa42d5aa"]]);
+const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-5985b3e7"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementBlock:_createElementBlock,unref:_unref,normalizeClass:_normalizeClass,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,withKeys:_withKeys} = await importShared('vue');
 

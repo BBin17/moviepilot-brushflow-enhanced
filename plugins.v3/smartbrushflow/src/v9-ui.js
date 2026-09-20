@@ -61,7 +61,7 @@ export function normalizeTaskV9(task) {
   })
   const savePath = result.identity.save_path
   result.identity.save_path = savePath && typeof savePath === 'object'
-    ? String(savePath.value ?? savePath.path ?? savePath.title ?? '').trim() || null
+    ? String([savePath.value, savePath.path, savePath.title].find(item => item !== null && item !== undefined && typeof item !== 'function') ?? '').trim() || null
     : String(savePath || '').trim() || null
   return result
 }

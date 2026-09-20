@@ -706,15 +706,17 @@ class SmartBrushFlow(_PluginBase):
         if value is None:
             return
         if isinstance(value, dict):
-            value = value.get("value") or value.get("path") or value.get("title")
+            candidates = [value.get("value"), value.get("path"), value.get("title")]
+        elif isinstance(value, str):
+            candidates = [value]
         else:
-            value = (
-                getattr(value, "value", None)
-                or getattr(value, "path", None)
-                or getattr(value, "title", None)
-                or value
-            )
-        path = str(value).strip()
+            candidates = []
+            for key in ("value", "path", "title"):
+                candidate = getattr(value, key, None)
+                if candidate is not None and not callable(candidate):
+                    candidates.append(candidate)
+            candidates.append(value)
+        path = next((str(candidate).strip() for candidate in candidates if candidate is not None and str(candidate).strip()), "")
         if not path or path in seen:
             return
         seen.add(path)

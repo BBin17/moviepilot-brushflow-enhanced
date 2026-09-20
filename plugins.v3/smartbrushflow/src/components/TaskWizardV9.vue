@@ -20,7 +20,8 @@ const siteName = computed(() => props.sites.find(item => Number(item.value) === 
 const preview = computed(() => taskPreview(draft.value, siteName.value))
 function normalizePathValue(value) {
   if (value && typeof value === 'object') {
-    return String(value.value ?? value.path ?? value.title ?? '').trim() || null
+    const candidate = [value.value, value.path, value.title].find(item => item !== null && item !== undefined && typeof item !== 'function')
+    return String(candidate ?? '').trim() || null
   }
   return String(value ?? '').trim() || null
 }
