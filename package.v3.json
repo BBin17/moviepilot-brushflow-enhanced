@@ -7,7 +7,6 @@
     "icon": "brush-flow.png",
     "author": "jxxghp,InfinityPacer,Seed680; enhanced locally",
     "level": 2,
-    "release": true,
     "system_version": ">=3.0.0",
     "history": {
       "v9.0.6": "清理完成或失败的进度结果展示8秒后自动收起，避免100%进度条长期占据状态页；完整结果继续保留在运行记录中。",
@@ -35,13 +34,14 @@
     "name": "智能刷流",
     "description": "独立的智能选种、下载健康和安全删种工作台，与旧版站点刷流任务完全分离。",
     "labels": "智能刷流,收益学习,下载健康,安全删种",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "brush-flow.png",
     "author": "BBin17",
     "level": 2,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v1.0.1": "增加接管历史种子：识别旧版刷流标签并纳入新插件管理，不重复下载、不删除原有数据，保留旧标签兼容运行。",
       "v1.0.0": "首个独立 V3 插件：使用独立 SmartBrushFlow 插件 ID、配置空间、API 和前端联邦入口；保留智能选种、下载健康、观察期与安全删种能力，不读取或改写旧站点刷流任务。"
     }
   }
