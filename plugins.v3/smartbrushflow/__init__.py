@@ -344,9 +344,6 @@ class SmartBrushFlow(_PluginBase):
     DATA_SCHEMA_VERSION = 9
     MAX_RUN_HISTORY = 50
     GLOBAL_BRUSH_TAG = "智能刷流"
-    # 旧版 BrushFlow 使用的标签。只用于识别和接管，不主动删除旧标签。
-    LEGACY_GLOBAL_BRUSH_TAGS = frozenset({"刷流"})
-    LEGACY_TASK_TAG_PREFIX = "刷流-"
     SIGNIN_DATA_KEY = "signin_history"
     TASK_DATA_NAMES = (
         "torrents",
@@ -480,6 +477,13 @@ class SmartBrushFlow(_PluginBase):
                 "methods": ["GET"],
                 "auth": "bear",
                 "summary": "获取刷流任务总览",
+            },
+            {
+                "path": "/downloaders/{downloader}/paths",
+                "endpoint": self.get_downloader_paths,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "读取下载器实际保存目录",
             },
             {
                 "path": "/settings",
@@ -671,6 +675,127 @@ class SmartBrushFlow(_PluginBase):
     def get_status(self) -> schemas.Response:
         """返回全局设置、任务摘要和前端可选项"""
         return schemas.Response(success=True, data=self._build_status_data())
+
+    @staticmethod
+    def _mapping_value(value: Any, key: str) -> Any:
+        """兼容 qB/Transmission 返回的 dict、映射对象和属性对象。"""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return value.get(key)
+        getter = getattr(value, "get", None)
+        if callable(getter):
+            try:
+                return getter(key)
+            except Exception:
+                pass
+        return getattr(value, key, None)
+
+    @classmethod
+    def _append_downloader_path(
+        cls,
+        paths: List[dict],
+        seen: Set[str],
+        value: Any,
+        source: str,
+    ) -> None:
+        """加入真实读取到的目录；不生成、不猜测任何固定路径。"""
+        if value is None:
+            return
+        path = str(value).strip()
+        if not path or path in seen:
+            return
+        seen.add(path)
+        paths.append({"title": path, "value": path, "source": source})
+
+    def get_downloader_paths(self, downloader: str) -> schemas.Response:
+        """读取指定下载器当前实际使用过的保存目录。
+
+        qB 优先读取 Web API 的默认保存目录和现有任务的 ``save_path``；
+        Transmission 读取 session 的 ``download_dir`` 和现有任务的目录。
+        只有下载器自己返回的路径才会进入选项，插件不会写死 NAS 路径。
+        """
+        name = str(downloader or "").strip()
+        configs = DownloaderHelper().get_configs()
+        if not name or name not in configs:
+            return schemas.Response(success=False, message="下载器不存在")
+
+        paths: List[dict] = []
+        seen: Set[str] = set()
+        config = configs.get(name)
+        config_data = getattr(config, "config", None) or {}
+        if isinstance(config_data, dict):
+            for key in ("save_path", "download_dir", "download_path", "default_save_path"):
+                self._append_downloader_path(
+                    paths, seen, config_data.get(key), "下载器配置"
+                )
+
+        service = None
+        warning = None
+        try:
+            service = DownloaderHelper().get_service(name=name)
+            instance = getattr(service, "instance", None) if service else None
+            service_type = str(getattr(service, "type", "") or "").lower()
+            client = getattr(instance, "qbc", None)
+
+            if client and service_type == "qbittorrent":
+                default_path = getattr(client, "app_default_save_path", None)
+                if callable(default_path):
+                    try:
+                        self._append_downloader_path(
+                            paths, seen, default_path(), "qBittorrent 默认目录"
+                        )
+                    except Exception as err:
+                        logger.debug(f"读取 qBittorrent 默认保存目录失败：{str(err)}")
+                preferences = getattr(client, "app_preferences", None)
+                if callable(preferences):
+                    try:
+                        preference_data = preferences() or {}
+                        self._append_downloader_path(
+                            paths, seen, self._mapping_value(preference_data, "save_path"),
+                            "qBittorrent 设置",
+                        )
+                    except Exception as err:
+                        logger.debug(f"读取 qBittorrent 保存目录设置失败：{str(err)}")
+
+            if instance and service_type == "transmission":
+                get_session = getattr(instance, "get_session", None)
+                if callable(get_session):
+                    try:
+                        session = get_session()
+                        self._append_downloader_path(
+                            paths, seen, self._mapping_value(session, "download_dir"),
+                            "Transmission 默认目录",
+                        )
+                    except Exception as err:
+                        logger.debug(f"读取 Transmission 默认保存目录失败：{str(err)}")
+
+            if instance:
+                get_torrents = getattr(instance, "get_torrents", None)
+                if callable(get_torrents):
+                    try:
+                        torrents, error = get_torrents()
+                        if not error:
+                            for torrent in torrents or []:
+                                path = (
+                                    self._mapping_value(torrent, "save_path")
+                                    or self._mapping_value(torrent, "download_dir")
+                                    or self._mapping_value(torrent, "content_path")
+                                )
+                                self._append_downloader_path(
+                                    paths, seen, path, "现有任务目录"
+                                )
+                    except Exception as err:
+                        warning = "下载器当前不可读取，仍可手动输入目录"
+                        logger.debug(f"读取下载器现有任务目录失败：{str(err)}")
+        except Exception as err:
+            warning = "下载器当前不可读取，仍可手动输入目录"
+            logger.debug(f"读取下载器保存目录失败：{str(err)}")
+
+        data = {"downloader": name, "paths": paths}
+        if warning:
+            data["warning"] = warning
+        return schemas.Response(success=True, data=data)
 
     def update_settings(self, payload: SmartBrushFlowSettingsPayload) -> schemas.Response:
         """更新插件全局开关、自动签到配置并刷新宿主任务调度"""
@@ -895,8 +1020,6 @@ class SmartBrushFlow(_PluginBase):
         document = self._task_documents.get(task_id)
         if not task or not document:
             return schemas.Response(success=False, message="刷流任务不存在")
-        if action == "restore_existing":
-            return self._restore_existing_torrents_locked(task_id)
         if action in {"retry_stalled", "pause_stalled"}:
             torrents = self._get_task_data(task_id, "torrents") or {}
             health_store = self._get_task_data(task_id, "download_health") or {}
@@ -959,53 +1082,6 @@ class SmartBrushFlow(_PluginBase):
         self._save_config()
         self._refresh_scheduler()
         return schemas.Response(success=True, message=messages[action], data=self._build_task_overview(task_id))
-
-    def _restore_existing_torrents_locked(self, task_id: str) -> schemas.Response:
-        """接管旧版 BrushFlow 留在下载器中的种子，不触发选种、删种或删除数据。"""
-        task = self._task_configs.get(task_id)
-        if not task or not self._validate_task_reference(task, notify=False):
-            return schemas.Response(success=False, message="任务绑定的站点或下载器不可用")
-        service = DownloaderHelper().get_service(name=task.downloader)
-        if not service or not service.instance or service.instance.is_inactive():
-            return schemas.Response(success=False, message="下载器不可用，未接管任何种子", data={"code": "downloader_unavailable"})
-        torrents, error = service.instance.get_torrents()
-        if error or torrents is None:
-            return schemas.Response(success=False, message="读取下载器种子失败，未接管任何种子", data={"code": "downloader_unavailable"})
-        current = self._get_task_data(task_id, "torrents") or {}
-        unmanaged = self._get_task_data(task_id, "unmanaged") or {}
-        by_hash = {self.__get_hash(torrent): torrent for torrent in torrents if self.__get_hash(torrent)}
-        with self._task_scope(task_id):
-            result = self.__update_seeding_tasks_based_on_tags(current, unmanaged, by_hash, service=service)
-        self._save_task_data(task_id, "torrents", current)
-        self._save_task_data(task_id, "unmanaged", unmanaged)
-        self._recalculate_statistics(task_id)
-        restored_count = int(result.get("restored_count") or 0)
-        restored_bytes = float(result.get("restored_bytes") or 0)
-        tagged_count = int(result.get("tagged_count") or 0)
-        self._append_decision_audit(task_id, {
-            "at": time.time(),
-            "kind": "restore_existing",
-            "restored_count": restored_count,
-            "restored_bytes": restored_bytes,
-            "tagged_count": tagged_count,
-            "tagged_tag": result.get("tagged_tag"),
-            "legacy_tags": True,
-        })
-        return schemas.Response(
-            success=True,
-            message=(
-                f"已接管 {restored_count} 个历史种子，补回 {tagged_count} 个管理标签"
-                if restored_count or tagged_count
-                else "没有找到可接管的历史种子"
-            ),
-            data={
-                "restored_count": restored_count,
-                "restored_bytes": restored_bytes,
-                "tagged_count": tagged_count,
-                "tagged_tag": result.get("tagged_tag"),
-                "task": self._build_task_overview(task_id),
-            },
-        )
 
     def run_signin(self) -> schemas.Response:
         """异步执行一次站点签到；手动执行不要求自动签到开关已打开。"""
@@ -1242,27 +1318,6 @@ class SmartBrushFlow(_PluginBase):
             return False
         client.torrents_delete_tags(tags=tags)
         return True
-
-    @staticmethod
-    def _add_qbittorrent_tag(service: Any, torrent_hashes: List[str], tag: str) -> int:
-        """为已明确识别的历史种子补回当前任务标签。
-
-        qB 的标签是种子属性，不是全局标签定义。接管历史种子时只新增当前
-        插件的唯一标签，保留旧标签和用户标签；没有可靠的历史标签匹配时
-        不会调用这里，因此不会把普通下载误纳入刷流任务。
-        """
-        client = getattr(getattr(service, "instance", None), "qbc", None)
-        hashes = list(dict.fromkeys(str(item) for item in torrent_hashes if item))
-        if not client or not hashes or not tag:
-            return 0
-        try:
-            # qBittorrent Web API 使用 | 分隔多个 hash，避免不同 qB 客户端
-            # 对 list 参数的序列化差异。
-            client.torrents_add_tags(torrent_hashes="|".join(hashes), tags=tag)
-            return len(hashes)
-        except Exception as err:
-            logger.warning(f"补回 qBittorrent 刷流管理标签失败：{str(err)}")
-            return 0
 
     def _cleanup_unused_task_tag(
         self,
@@ -2916,34 +2971,18 @@ class SmartBrushFlow(_PluginBase):
         added_tasks: List[dict] = []
         removed_tasks: List[dict] = []
         reset_tasks: List[dict] = []
-        restored_count = 0
-        restored_bytes = 0.0
-        tag_restore_hashes: List[str] = []
-        legacy_task_tags = self._legacy_task_tags(task)
         for torrent_hash, torrent in seeding_torrents_dict.items():
             tags = self.__get_label(torrent)
             has_unique_tag = task.brush_tag in tags
             has_global_tag = self.GLOBAL_BRUSH_TAG in tags
-            has_legacy_task_tag = bool(legacy_task_tags.intersection(tags))
-            has_legacy_global_tag = bool(self.LEGACY_GLOBAL_BRUSH_TAGS.intersection(tags))
             existing = torrent_hash in torrent_tasks
-            adopt_legacy = (
-                (has_global_tag or has_legacy_global_tag)
-                and not existing
-                and self._is_primary_task_for_torrent(task, torrent)
-            )
-            managed = has_unique_tag or has_legacy_task_tag or (has_global_tag and existing) or adopt_legacy
+            managed = has_unique_tag or (has_global_tag and existing)
             if managed:
-                if not has_unique_tag:
-                    tag_restore_hashes.append(torrent_hash)
                 if not existing:
                     torrent_task = unmanaged_tasks.pop(torrent_hash, None) or self.__convert_torrent_info_to_task(torrent)
                     torrent_task.update({"task_id": task.id, "task_name": task.name})
                     torrent_tasks[torrent_hash] = torrent_task
                     added_tasks.append(torrent_task)
-                    if has_legacy_task_tag or has_legacy_global_tag:
-                        restored_count += 1
-                        restored_bytes += float(torrent_task.get("size") or torrent_task.get("total_size") or 0)
                 elif torrent_tasks[torrent_hash].get("deleted"):
                     torrent_tasks[torrent_hash]["deleted"] = False
                     torrent_tasks[torrent_hash].pop("deleted_time", None)
@@ -2951,7 +2990,6 @@ class SmartBrushFlow(_PluginBase):
             elif existing:
                 unmanaged_tasks[torrent_hash] = torrent_tasks.pop(torrent_hash)
                 removed_tasks.append(unmanaged_tasks[torrent_hash])
-        tagged_count = self._add_qbittorrent_tag(service, tag_restore_hashes, task.brush_tag)
         self._save_current_task_data("torrents", torrent_tasks)
         self._save_current_task_data("unmanaged", unmanaged_tasks)
         if added_tasks:
@@ -2967,30 +3005,11 @@ class SmartBrushFlow(_PluginBase):
                 "【刷流任务状态更新】", "恢复为正常", "下载器中仍存在对应种子", reset_tasks
             )
         return {
-            "restored_count": restored_count,
-            "restored_bytes": int(restored_bytes),
-            "tagged_count": tagged_count,
-            "tagged_tag": task.brush_tag if tagged_count else None,
+            "managed_count": len(added_tasks),
+            "restored_count": 0,
+            "restored_bytes": 0,
+            "tagged_count": 0,
         }
-
-    def _legacy_task_tags(self, task: BrushTaskConfig) -> Set[str]:
-        """返回旧版任务可能写入的标签，兼容自定义标签和按站点默认标签。"""
-        tags: Set[str] = set()
-        if task.tag:
-            tags.add(str(task.tag).strip())
-        site_name = self._get_site_name(task.site_id)
-        for name in (site_name, task.name):
-            if name:
-                tags.add(f"{self.LEGACY_TASK_TAG_PREFIX}{name}")
-        return {tag for tag in tags if tag and tag != task.brush_tag}
-
-    def _is_primary_task_for_torrent(self, task: BrushTaskConfig, torrent: Any) -> bool:
-        """仅让同站点第一项任务接管没有唯一标签的旧版刷流种子"""
-        site_id, _ = self.__get_site_by_torrent(torrent)
-        if site_id != task.site_id:
-            return False
-        site_tasks = [item for item in self._task_configs.values() if item.site_id == site_id]
-        return bool(site_tasks and site_tasks[0].id == task.id)
 
     @staticmethod
     def _smart_reason_label(code: str) -> str:
