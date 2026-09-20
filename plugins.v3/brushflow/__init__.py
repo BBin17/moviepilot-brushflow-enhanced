@@ -30,8 +30,8 @@ from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
 from app.sdk.plugin import _PluginBase
 from app.scheduler import Scheduler
-from app.schemas import MediaType, NotificationType, ServiceInfo, TorrentInfo
-from app.schemas.types import EventType
+from app.schemas import MediaType, ServiceInfo, TorrentInfo
+from app.schemas.types import EventType, MessageType as NotificationType
 from app.sdk.network import RequestUtils
 from app.sdk.utilities import StringUtils
 
