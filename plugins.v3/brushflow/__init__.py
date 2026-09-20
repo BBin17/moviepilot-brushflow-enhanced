@@ -28,7 +28,7 @@ from app.runtime.thread import ThreadHelper
 from app.sdk.logging import logger
 from app.modules.qbittorrent import Qbittorrent
 from app.modules.transmission import Transmission
-from app.plugins import _PluginBase
+from app.sdk.plugin import _PluginBase
 from app.scheduler import Scheduler
 from app.schemas import MediaType, NotificationType, ServiceInfo, TorrentInfo
 from app.schemas.types import EventType
