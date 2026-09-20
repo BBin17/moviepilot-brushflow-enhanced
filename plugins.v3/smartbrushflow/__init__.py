@@ -344,6 +344,9 @@ class SmartBrushFlow(_PluginBase):
     DATA_SCHEMA_VERSION = 9
     MAX_RUN_HISTORY = 50
     GLOBAL_BRUSH_TAG = "智能刷流"
+    # qBittorrent 新增种子时使用的临时定位标签。它只用于拿到 Hash，
+    # 不应长期留在下载器中；任务标签仍然保留用于后续纳管和安全删种。
+    _TEMPORARY_QB_TAG_RE = re.compile(r"^[A-Za-z0-9]{10}$")
     SIGNIN_DATA_KEY = "signin_history"
     TASK_DATA_NAMES = (
         "torrents",
@@ -1318,6 +1321,54 @@ class SmartBrushFlow(_PluginBase):
             return False
         client.torrents_delete_tags(tags=tags)
         return True
+
+    @classmethod
+    def _is_temporary_qb_tag(cls, tag: str) -> bool:
+        """判断是否为添加种子时生成的 10 位临时定位标签。"""
+        return bool(tag and cls._TEMPORARY_QB_TAG_RE.fullmatch(tag))
+
+    @staticmethod
+    def _remove_qbittorrent_torrent_tag(service: Any, torrent_hash: str, tag: str) -> bool:
+        """从单个 qBittorrent 种子移除临时标签。"""
+        client = getattr(getattr(service, "instance", None), "qbc", None)
+        if not client or not torrent_hash or not tag:
+            return False
+        client.torrents_remove_tags(tags=[tag], torrent_hashes=[torrent_hash])
+        return True
+
+    def _cleanup_temporary_qb_tags(
+        self,
+        task: BrushTaskConfig,
+        torrents: Optional[List[Any]],
+    ) -> int:
+        """清理刷流历史遗留的临时定位标签，保留任务管理标签。"""
+        if not task or not torrents or not self.service_info:
+            return 0
+        if not DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
+            return 0
+        removed = 0
+        for torrent in torrents:
+            torrent_hash = self.__get_hash(torrent)
+            tags = self.__get_label(torrent)
+            if not torrent_hash or task.brush_tag not in tags:
+                continue
+            temporary_tags = [
+                tag for tag in tags
+                if tag != task.brush_tag and self._is_temporary_qb_tag(tag)
+            ]
+            for tag in temporary_tags:
+                try:
+                    if self._remove_qbittorrent_torrent_tag(self.service_info, torrent_hash, tag):
+                        # removeTags 只解除种子绑定；再删除全局定义，避免 qB 标签列表继续堆积。
+                        self._delete_qbittorrent_tags(self.service_info, tag)
+                        removed += 1
+                except Exception as err:
+                    logger.warning(
+                        f"清理刷流任务 [{task.name}] 临时标签 [{tag}] 失败：{str(err)}"
+                    )
+        if removed:
+            logger.info(f"刷流任务 [{task.name}] 清理临时标签 {removed} 个")
+        return removed
 
     def _cleanup_unused_task_tag(
         self,
@@ -2858,6 +2909,7 @@ class SmartBrushFlow(_PluginBase):
         torrent_tasks = self._current_task_data("torrents", {})
         unmanaged_tasks = self._current_task_data("unmanaged", {})
         by_hash = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
+        self._cleanup_temporary_qb_tags(task, seeding_torrents)
         restored = self.__update_seeding_tasks_based_on_tags(torrent_tasks, unmanaged_tasks, by_hash)
         report.update(restored)
         check_hashes = list(torrent_tasks)
@@ -3417,6 +3469,15 @@ class SmartBrushFlow(_PluginBase):
             torrent_hash = downloader.get_torrent_id_by_tag(tags=random_tag)
             if not torrent_hash:
                 logger.error(f"刷流任务 [{task.name}] 获取种子 Hash 失败")
+            else:
+                try:
+                    # 临时标签只用于本次 add_torrent 后定位 Hash，成功后立即移除。
+                    self._remove_qbittorrent_torrent_tag(service, torrent_hash, random_tag)
+                    self._delete_qbittorrent_tags(service, random_tag)
+                except Exception as err:
+                    logger.warning(
+                        f"刷流任务 [{task.name}] 清理临时标签 [{random_tag}] 失败：{str(err)}"
+                    )
             return torrent_hash
         if downloader_helper.is_downloader("transmission", service=service):
             if isinstance(torrent_content, str) and not torrent_content.startswith("magnet"):

@@ -24,7 +24,7 @@ def test_smartbrushflow_is_a_distinct_v3_plugin() -> None:
 
     metadata = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     assert metadata["SmartBrushFlow"]["name"] == "智能刷流"
-    assert metadata["SmartBrushFlow"]["version"] == "1.1.2"
+    assert metadata["SmartBrushFlow"]["version"] == "1.1.3"
     assert metadata["SmartBrushFlow"]["release"] is True
 
 
@@ -32,3 +32,12 @@ def test_old_and_new_plugin_sources_are_not_the_same_directory() -> None:
     assert (ROOT / "plugins.v3" / "brushflow").resolve() != PLUGIN.resolve()
     assert (PLUGIN / "__init__.py").exists()
     assert (PLUGIN / "src" / "components" / "SmartBrushFlow.vue").exists()
+
+
+def test_qb_temporary_add_tags_are_removed_after_hash_lookup() -> None:
+    """临时定位标签不能和任务管理标签一起长期写入 qBittorrent。"""
+    source = (PLUGIN / "__init__.py").read_text(encoding="utf-8")
+    assert "_TEMPORARY_QB_TAG_RE = re.compile(r\"^[A-Za-z0-9]{10}$\")" in source
+    assert "torrents_remove_tags(tags=[tag], torrent_hashes=[torrent_hash])" in source
+    assert "self._cleanup_temporary_qb_tags(task, seeding_torrents)" in source
+    assert "self._remove_qbittorrent_torrent_tag(service, torrent_hash, random_tag)" in source
