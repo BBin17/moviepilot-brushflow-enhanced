@@ -59,6 +59,10 @@ export function normalizeTaskV9(task) {
     const key = path.at(-1)
     parent[key] = String(parent[key] || '').trim() || null
   })
+  const savePath = result.identity.save_path
+  result.identity.save_path = savePath && typeof savePath === 'object'
+    ? String(savePath.value ?? savePath.path ?? savePath.title ?? '').trim() || null
+    : String(savePath || '').trim() || null
   return result
 }
 

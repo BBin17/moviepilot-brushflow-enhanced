@@ -62,6 +62,10 @@ function normalizeTaskV9(task) {
     const key = path.at(-1);
     parent[key] = String(parent[key] || '').trim() || null;
   });
+  const savePath = result.identity.save_path;
+  result.identity.save_path = savePath && typeof savePath === 'object'
+    ? String(savePath.value ?? savePath.path ?? savePath.title ?? '').trim() || null
+    : String(savePath || '').trim() || null;
   return result
 }
 
@@ -238,9 +242,16 @@ const saveConfirmOpen = ref$1(false);
 const steps = ['站点与任务', '空间与速度', '选种方式', '删种与安全'];
 const siteName = computed$1(() => props.sites.find(item => Number(item.value) === Number(draft.value.identity.site_id))?.title || '当前站点');
 const preview = computed$1(() => taskPreview(draft.value, siteName.value));
+function normalizePathValue(value) {
+  if (value && typeof value === 'object') {
+    return String(value.value ?? value.path ?? value.title ?? '').trim() || null
+  }
+  return String(value ?? '').trim() || null
+}
 const directoryItems = computed$1(() => {
   const items = [{ title: '使用下载器默认目录', value: '' }];
-  const current = draft.value.identity.save_path;
+  const current = normalizePathValue(draft.value.identity.save_path);
+  if (draft.value.identity.save_path !== current) draft.value.identity.save_path = current;
   if (current && !pathOptions.value.some(item => item.value === current)) {
     items.push({ title: current, subtitle: '当前任务配置', value: current, source: '当前任务配置' });
   }
@@ -257,12 +268,15 @@ async function loadPaths(downloader = draft.value.identity.downloader) {
   try {
     const data = unwrapResponse(await props.api.get(`${props.pluginBase}/downloaders/${encodeURIComponent(downloader)}/paths`)) || {};
     if (request !== pathRequest) return
-    pathOptions.value = (data.paths || []).filter(item => item?.value).map(item => ({
-      title: item.title || item.value,
+    pathOptions.value = (data.paths || []).map(item => {
+      const value = normalizePathValue(item?.value ?? item);
+      return {
+      title: normalizePathValue(item?.title) || value,
       subtitle: item.source || '下载器返回',
-      value: item.value,
+      value,
       source: item.source,
-    }));
+      }
+    }).filter(item => item.value);
     pathsError.value = data.warning || '';
   } catch (err) {
     if (request === pathRequest) pathsError.value = '暂时读不到下载器目录，仍可手动输入路径';
@@ -304,6 +318,7 @@ function save() {
 }
 function confirmSave() {
   saveConfirmOpen.value = false;
+  draft.value.identity.save_path = normalizePathValue(draft.value.identity.save_path);
   emit('save', normalizeTaskV9(draft.value));
 }
 
@@ -448,6 +463,7 @@ return (_ctx, _cache) => {
                                 items: directoryItems.value,
                                 "item-title": "title",
                                 "item-value": "value",
+                                "return-object": false,
                                 label: "保存目录",
                                 placeholder: "选择下载器目录，或手动输入",
                                 "prepend-inner-icon": "mdi-folder-search-outline",
@@ -1397,7 +1413,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-3917c634"]]);
+const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-aa42d5aa"]]);
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementBlock:_createElementBlock,unref:_unref,normalizeClass:_normalizeClass,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,withKeys:_withKeys} = await importShared('vue');
 

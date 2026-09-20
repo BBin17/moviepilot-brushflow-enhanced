@@ -18,9 +18,16 @@ const saveConfirmOpen = ref(false)
 const steps = ['站点与任务', '空间与速度', '选种方式', '删种与安全']
 const siteName = computed(() => props.sites.find(item => Number(item.value) === Number(draft.value.identity.site_id))?.title || '当前站点')
 const preview = computed(() => taskPreview(draft.value, siteName.value))
+function normalizePathValue(value) {
+  if (value && typeof value === 'object') {
+    return String(value.value ?? value.path ?? value.title ?? '').trim() || null
+  }
+  return String(value ?? '').trim() || null
+}
 const directoryItems = computed(() => {
   const items = [{ title: '使用下载器默认目录', value: '' }]
-  const current = draft.value.identity.save_path
+  const current = normalizePathValue(draft.value.identity.save_path)
+  if (draft.value.identity.save_path !== current) draft.value.identity.save_path = current
   if (current && !pathOptions.value.some(item => item.value === current)) {
     items.push({ title: current, subtitle: '当前任务配置', value: current, source: '当前任务配置' })
   }
@@ -37,12 +44,15 @@ async function loadPaths(downloader = draft.value.identity.downloader) {
   try {
     const data = unwrapResponse(await props.api.get(`${props.pluginBase}/downloaders/${encodeURIComponent(downloader)}/paths`)) || {}
     if (request !== pathRequest) return
-    pathOptions.value = (data.paths || []).filter(item => item?.value).map(item => ({
-      title: item.title || item.value,
+    pathOptions.value = (data.paths || []).map(item => {
+      const value = normalizePathValue(item?.value ?? item)
+      return {
+      title: normalizePathValue(item?.title) || value,
       subtitle: item.source || '下载器返回',
-      value: item.value,
+      value,
       source: item.source,
-    }))
+      }
+    }).filter(item => item.value)
     pathsError.value = data.warning || ''
   } catch (err) {
     if (request === pathRequest) pathsError.value = '暂时读不到下载器目录，仍可手动输入路径'
@@ -84,6 +94,7 @@ function save() {
 }
 function confirmSave() {
   saveConfirmOpen.value = false
+  draft.value.identity.save_path = normalizePathValue(draft.value.identity.save_path)
   emit('save', normalizeTaskV9(draft.value))
 }
 </script>
@@ -101,7 +112,7 @@ function confirmSave() {
           <VAlert v-if="error" type="error" variant="tonal" density="compact">{{ error }}</VAlert>
           <section v-if="step===1" class="wizard-section">
             <div><h3>这个任务刷哪个站？</h3><p>站点和下载器保存后仍可修改，历史数据会继续关联。</p></div>
-            <VRow><VCol cols="12" md="6"><VTextField v-model="draft.identity.name" label="任务名称"/></VCol><VCol cols="12" md="6"><VSelect v-model="draft.identity.site_id" :items="sites" label="站点"/></VCol><VCol cols="12" md="6"><VSelect v-model="draft.identity.downloader" :items="downloaders" label="下载器"/></VCol><VCol cols="12" md="6"><VCombobox v-model="draft.identity.save_path" :items="directoryItems" item-title="title" item-value="value" label="保存目录" placeholder="选择下载器目录，或手动输入" prepend-inner-icon="mdi-folder-search-outline" clearable :loading="pathsLoading" hint="目录来自所选下载器的实际配置和现有任务；留空使用默认目录" persistent-hint/></VCol></VRow>
+            <VRow><VCol cols="12" md="6"><VTextField v-model="draft.identity.name" label="任务名称"/></VCol><VCol cols="12" md="6"><VSelect v-model="draft.identity.site_id" :items="sites" label="站点"/></VCol><VCol cols="12" md="6"><VSelect v-model="draft.identity.downloader" :items="downloaders" label="下载器"/></VCol><VCol cols="12" md="6"><VCombobox v-model="draft.identity.save_path" :items="directoryItems" item-title="title" item-value="value" :return-object="false" label="保存目录" placeholder="选择下载器目录，或手动输入" prepend-inner-icon="mdi-folder-search-outline" clearable :loading="pathsLoading" hint="目录来自所选下载器的实际配置和现有任务；留空使用默认目录" persistent-hint/></VCol></VRow>
             <VAlert v-if="pathsError" type="info" variant="tonal" density="compact">{{ pathsError }}</VAlert>
             <VRow><VCol cols="12" md="4"><VTextField v-model.number="draft.schedule.brush_interval" type="number" min="1" label="选种周期（分钟）"/></VCol><VCol cols="12" md="4"><VTextField v-model.number="draft.schedule.check_interval" type="number" min="1" label="检查周期（分钟）"/></VCol><VCol cols="12" md="4"><VTextField v-model="draft.schedule.active_time_range" label="运行时段" placeholder="全天或 00:00-08:00"/></VCol></VRow>
             <div class="switches"><VSwitch v-model="draft.identity.enabled" label="启用任务" hide-details/><VSwitch v-model="draft.identity.notify" label="发送通知" hide-details/><VSwitch v-model="draft.goal.enabled" label="设置分享率目标" hide-details/></div>

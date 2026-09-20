@@ -705,6 +705,15 @@ class SmartBrushFlow(_PluginBase):
         """加入真实读取到的目录；不生成、不猜测任何固定路径。"""
         if value is None:
             return
+        if isinstance(value, dict):
+            value = value.get("value") or value.get("path") or value.get("title")
+        else:
+            value = (
+                getattr(value, "value", None)
+                or getattr(value, "path", None)
+                or getattr(value, "title", None)
+                or value
+            )
         path = str(value).strip()
         if not path or path in seen:
             return
