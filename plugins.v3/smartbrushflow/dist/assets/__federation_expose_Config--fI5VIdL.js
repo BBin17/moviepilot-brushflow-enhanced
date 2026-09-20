@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { B as BrushFlowV9 } from './BrushFlowV9-K-5ubzoR.js';
+import { S as SmartBrushFlow } from './SmartBrushFlow-BuI8iIUl.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 
@@ -25,9 +25,9 @@ onMounted(() => {
 });
 
 return (_ctx, _cache) => {
-  return (_openBlock(), _createBlock(BrushFlowV9, {
+  return (_openBlock(), _createBlock(SmartBrushFlow, {
     api: __props.api,
-    "plugin-id": "BrushFlow",
+    "plugin-id": "SmartBrushFlow",
     "initial-tab": "config",
     "show-close": "",
     compact: "",

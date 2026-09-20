@@ -1,4 +1,4 @@
-"""BrushFlow 9.0 插件级请求模型。
+"""SmartBrushFlow 1.0 插件级请求模型。
 
 任务配置由 ``TaskConfigV9`` 负责；这里不再保留旧条件、动态删种或兼容引擎字段。
 """
@@ -27,7 +27,7 @@ class TaskActionPayload(BaseModel):
     relax_limits: bool = False
 
 
-class BrushFlowSettingsPayload(BaseModel):
+class SmartBrushFlowSettingsPayload(BaseModel):
     enabled: bool = True
     show_sidebar_nav: bool = True
     global_disksize: Optional[float] = Field(None, gt=0)

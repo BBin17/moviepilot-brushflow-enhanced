@@ -57,7 +57,7 @@ def test_strategy_operation_respects_task_lock():
     assert "执行" in response.message
 
 
-def test_force_cleanup_uses_the_unified_action_entrypoint():
+def test_legacy_force_cleanup_requires_a_confirmed_preview():
     task = smart_task()
     plugin = make_plugin(task)
     submitted = []
@@ -68,8 +68,9 @@ def test_force_cleanup_uses_the_unified_action_entrypoint():
 
     response = plugin.run_task_action(task.id, "force_cleanup")
 
-    assert response.success is True
-    assert submitted == [(task.id, "force_cleanup")]
+    assert response.success is False
+    assert response.data["code"] == "needs_preview"
+    assert submitted == []
 
 
 def test_force_cleanup_runtime_exposes_mergeable_progress():

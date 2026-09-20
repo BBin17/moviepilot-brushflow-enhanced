@@ -20,7 +20,7 @@ from .host import (
     ServiceInfo, TorrentInfo, EventType, RequestUtils, StringUtils,
 )
 
-from .models import BrushFlowSettingsPayload, CleanupPreviewPayload, TaskActionPayload
+from .models import SmartBrushFlowSettingsPayload, CleanupPreviewPayload, TaskActionPayload
 from .signin import signin_site, success_message
 from .version import __version__
 from .decision import (
@@ -160,7 +160,7 @@ GLOBAL_LIMIT_FIELDS = (
 
 class BrushTaskConfig:
     """
-    单个站点刷流任务的运行配置
+    单个智能刷流任务的运行配置
     """
 
     def __init__(self, config: dict):
@@ -297,8 +297,8 @@ class BrushTaskConfig:
         """返回当前任务在下载器中使用的标签（默认按站点名称生成，保证可读性）"""
         if self.tag:
             return self.tag
-        site_name = BrushFlow._get_site_name(self.site_id) if self.site_id else None
-        return f"刷流-{site_name}" if site_name else f"刷流-{self.id[:8]}"
+        site_name = SmartBrushFlow._get_site_name(self.site_id) if self.site_id else None
+        return f"智能刷流-{site_name}" if site_name else f"智能刷流-{self.id[:8]}"
 
     @staticmethod
     def _clean_text(value: Any) -> Optional[str]:
@@ -326,24 +326,27 @@ class BrushTaskConfig:
         return data
 
 
-class BrushFlow(_PluginBase):
+class SmartBrushFlow(_PluginBase):
     """
     多站点独立任务刷流插件
     """
 
-    plugin_name = "站点刷流增强版"
+    plugin_name = "智能刷流"
     plugin_desc = "本地 30 天收益学习、硬安全线、容量闭环与可解释智能选删种。"
     plugin_icon = "brush-flow.png"
     plugin_version = __version__
     plugin_author = "jxxghp,InfinityPacer,Seed680"
     author_url = "https://github.com/InfinityPacer"
-    plugin_config_prefix = "brushflow_"
+    plugin_config_prefix = "smartbrushflow_"
     plugin_order = 21
     auth_level = 2
 
     DATA_SCHEMA_VERSION = 9
     MAX_RUN_HISTORY = 50
-    GLOBAL_BRUSH_TAG = "刷流"
+    GLOBAL_BRUSH_TAG = "智能刷流"
+    # 旧版 BrushFlow 使用的标签。只用于识别和接管，不主动删除旧标签。
+    LEGACY_GLOBAL_BRUSH_TAGS = frozenset({"刷流"})
+    LEGACY_TASK_TAG_PREFIX = "刷流-"
     SIGNIN_DATA_KEY = "signin_history"
     TASK_DATA_NAMES = (
         "torrents",
@@ -460,7 +463,7 @@ class BrushFlow(_PluginBase):
         return [
             {
                 "nav_key": "main",
-                "title": "站点刷流",
+                "title": "智能刷流",
                 "icon": "mdi-sync",
                 "section": "organize",
                 "permission": "manage",
@@ -572,7 +575,7 @@ class BrushFlow(_PluginBase):
         return (
             {"cols": 12, "sm": 6, "md": 6},
             {
-                "title": "站点刷流",
+                "title": "智能刷流",
                 "subtitle": "多任务运行概览",
                 "refresh": 30,
                 "border": True,
@@ -627,7 +630,7 @@ class BrushFlow(_PluginBase):
                 )
                 services.append(
                     {
-                        "id": "BrushFlow_SignIn",
+                        "id": "SmartBrushFlow_SignIn",
                         "name": "站点自动签到",
                         "trigger": signin_trigger,
                         "func": self.sign_in,
@@ -669,7 +672,7 @@ class BrushFlow(_PluginBase):
         """返回全局设置、任务摘要和前端可选项"""
         return schemas.Response(success=True, data=self._build_status_data())
 
-    def update_settings(self, payload: BrushFlowSettingsPayload) -> schemas.Response:
+    def update_settings(self, payload: SmartBrushFlowSettingsPayload) -> schemas.Response:
         """更新插件全局开关、自动签到配置并刷新宿主任务调度"""
         signin_cron = str(payload.signin_cron or "17 7 * * *").strip()
         try:
@@ -892,6 +895,8 @@ class BrushFlow(_PluginBase):
         document = self._task_documents.get(task_id)
         if not task or not document:
             return schemas.Response(success=False, message="刷流任务不存在")
+        if action == "restore_existing":
+            return self._restore_existing_torrents_locked(task_id)
         if action in {"retry_stalled", "pause_stalled"}:
             torrents = self._get_task_data(task_id, "torrents") or {}
             health_store = self._get_task_data(task_id, "download_health") or {}
@@ -955,6 +960,44 @@ class BrushFlow(_PluginBase):
         self._refresh_scheduler()
         return schemas.Response(success=True, message=messages[action], data=self._build_task_overview(task_id))
 
+    def _restore_existing_torrents_locked(self, task_id: str) -> schemas.Response:
+        """接管旧版 BrushFlow 留在下载器中的种子，不触发选种、删种或删除数据。"""
+        task = self._task_configs.get(task_id)
+        if not task or not self._validate_task_reference(task, notify=False):
+            return schemas.Response(success=False, message="任务绑定的站点或下载器不可用")
+        service = DownloaderHelper().get_service(name=task.downloader)
+        if not service or not service.instance or service.instance.is_inactive():
+            return schemas.Response(success=False, message="下载器不可用，未接管任何种子", data={"code": "downloader_unavailable"})
+        torrents, error = service.instance.get_torrents()
+        if error or torrents is None:
+            return schemas.Response(success=False, message="读取下载器种子失败，未接管任何种子", data={"code": "downloader_unavailable"})
+        current = self._get_task_data(task_id, "torrents") or {}
+        unmanaged = self._get_task_data(task_id, "unmanaged") or {}
+        by_hash = {self.__get_hash(torrent): torrent for torrent in torrents if self.__get_hash(torrent)}
+        with self._task_scope(task_id):
+            result = self.__update_seeding_tasks_based_on_tags(current, unmanaged, by_hash)
+        self._save_task_data(task_id, "torrents", current)
+        self._save_task_data(task_id, "unmanaged", unmanaged)
+        self._recalculate_statistics(task_id)
+        restored_count = int(result.get("restored_count") or 0)
+        restored_bytes = float(result.get("restored_bytes") or 0)
+        self._append_decision_audit(task_id, {
+            "at": time.time(),
+            "kind": "restore_existing",
+            "restored_count": restored_count,
+            "restored_bytes": restored_bytes,
+            "legacy_tags": True,
+        })
+        return schemas.Response(
+            success=True,
+            message=f"已接管 {restored_count} 个历史种子" if restored_count else "没有找到可接管的历史种子",
+            data={
+                "restored_count": restored_count,
+                "restored_bytes": restored_bytes,
+                "task": self._build_task_overview(task_id),
+            },
+        )
+
     def run_signin(self) -> schemas.Response:
         """异步执行一次站点签到；手动执行不要求自动签到开关已打开。"""
         try:
@@ -1014,7 +1057,7 @@ class BrushFlow(_PluginBase):
         try:
             Scheduler().update_plugin_job(self.__class__.__name__)
         except Exception as err:
-            logger.error(f"更新站点刷流调度失败：{str(err)}")
+            logger.error(f"更新智能刷流调度失败：{str(err)}")
 
     @staticmethod
     def _normalize_site_ids(value: Any) -> List[int]:
@@ -1230,7 +1273,7 @@ class BrushFlow(_PluginBase):
                 if not client:
                     continue
                 all_tags = [str(tag).strip() for tag in client.torrents_tags() or [] if str(tag).strip()]
-                task_tags = [tag for tag in all_tags if tag.startswith("刷流-")]
+                task_tags = [tag for tag in all_tags if tag.startswith("智能刷流-")]
                 if not task_tags:
                     continue
                 torrents, error = service.instance.get_torrents()
@@ -1776,9 +1819,6 @@ class BrushFlow(_PluginBase):
             current_plan = {}
         latest_selection = next((row for row in reversed(audit) if row.get("kind") == "selection"), None)
         latest_deletion = next((row for row in reversed(audit) if row.get("kind") == "deletion"), None)
-        # The current plan is the source of truth. Older audit rows may only
-        # contain selected items and therefore cannot describe all protected
-        # torrents. Keep the audit fallback for data written before 9.1.
         deletion_plan = current_plan or latest_deletion or {}
         torrents = self._get_task_data(task_id, "torrents") or {}
         current_size = self.__calculate_seeding_torrents_size(torrents)
@@ -2369,7 +2409,7 @@ class BrushFlow(_PluginBase):
                 etype=EventType.PluginTriggered,
                 data={
                     "plugin_id": self.__class__.__name__,
-                    "event_name": "brushflow_download_added",
+                    "event_name": "smartbrushflow_download_added",
                     "hash": hash_string,
                     "data": torrent_task,
                     "downloader": self.service_info.name,
@@ -2418,7 +2458,7 @@ class BrushFlow(_PluginBase):
         return {
             "id": uuid.uuid4().hex,
             "kind": kind,
-            "started_at": BrushFlow._now_iso(),
+            "started_at": SmartBrushFlow._now_iso(),
             "finished_at": None,
             "success": None,
             "result": None,
@@ -2733,7 +2773,8 @@ class BrushFlow(_PluginBase):
         torrent_tasks = self._current_task_data("torrents", {})
         unmanaged_tasks = self._current_task_data("unmanaged", {})
         by_hash = {self.__get_hash(torrent): torrent for torrent in seeding_torrents}
-        self.__update_seeding_tasks_based_on_tags(torrent_tasks, unmanaged_tasks, by_hash)
+        restored = self.__update_seeding_tasks_based_on_tags(torrent_tasks, unmanaged_tasks, by_hash)
+        report.update(restored)
         check_hashes = list(torrent_tasks)
         check_torrents = [by_hash[key] for key in check_hashes if key in by_hash]
         self.__update_torrent_tasks_state(check_torrents, torrent_tasks)
@@ -2835,31 +2876,39 @@ class BrushFlow(_PluginBase):
         torrent_tasks: Dict[str, dict],
         unmanaged_tasks: Dict[str, dict],
         seeding_torrents_dict: Dict[str, Any],
-    ) -> None:
+    ) -> Dict[str, int]:
         """按任务唯一标签同步 qBittorrent 中的纳管和移除状态"""
         task = self._get_task_config()
         if not task or not DownloaderHelper().is_downloader("qbittorrent", service=self.service_info):
-            return
+            return {"restored_count": 0, "restored_bytes": 0}
         added_tasks: List[dict] = []
         removed_tasks: List[dict] = []
         reset_tasks: List[dict] = []
+        restored_count = 0
+        restored_bytes = 0.0
+        legacy_task_tags = self._legacy_task_tags(task)
         for torrent_hash, torrent in seeding_torrents_dict.items():
             tags = self.__get_label(torrent)
             has_unique_tag = task.brush_tag in tags
             has_global_tag = self.GLOBAL_BRUSH_TAG in tags
+            has_legacy_task_tag = bool(legacy_task_tags.intersection(tags))
+            has_legacy_global_tag = bool(self.LEGACY_GLOBAL_BRUSH_TAGS.intersection(tags))
             existing = torrent_hash in torrent_tasks
             adopt_legacy = (
-                has_global_tag
+                (has_global_tag or has_legacy_global_tag)
                 and not existing
                 and self._is_primary_task_for_torrent(task, torrent)
             )
-            managed = has_unique_tag or (has_global_tag and existing) or adopt_legacy
+            managed = has_unique_tag or has_legacy_task_tag or (has_global_tag and existing) or adopt_legacy
             if managed:
                 if not existing:
                     torrent_task = unmanaged_tasks.pop(torrent_hash, None) or self.__convert_torrent_info_to_task(torrent)
                     torrent_task.update({"task_id": task.id, "task_name": task.name})
                     torrent_tasks[torrent_hash] = torrent_task
                     added_tasks.append(torrent_task)
+                    if has_legacy_task_tag or has_legacy_global_tag:
+                        restored_count += 1
+                        restored_bytes += float(torrent_task.get("size") or torrent_task.get("total_size") or 0)
                 elif torrent_tasks[torrent_hash].get("deleted"):
                     torrent_tasks[torrent_hash]["deleted"] = False
                     torrent_tasks[torrent_hash].pop("deleted_time", None)
@@ -2881,6 +2930,18 @@ class BrushFlow(_PluginBase):
             self.__log_and_send_torrent_task_update_message(
                 "【刷流任务状态更新】", "恢复为正常", "下载器中仍存在对应种子", reset_tasks
             )
+        return {"restored_count": restored_count, "restored_bytes": int(restored_bytes)}
+
+    def _legacy_task_tags(self, task: BrushTaskConfig) -> Set[str]:
+        """返回旧版任务可能写入的标签，兼容自定义标签和按站点默认标签。"""
+        tags: Set[str] = set()
+        if task.tag:
+            tags.add(str(task.tag).strip())
+        site_name = self._get_site_name(task.site_id)
+        for name in (site_name, task.name):
+            if name:
+                tags.add(f"{self.LEGACY_TASK_TAG_PREFIX}{name}")
+        return {tag for tag in tags if tag and tag != task.brush_tag}
 
     def _is_primary_task_for_torrent(self, task: BrushTaskConfig, torrent: Any) -> bool:
         """仅让同站点第一项任务接管没有唯一标签的旧版刷流种子"""
@@ -3729,7 +3790,7 @@ class BrushFlow(_PluginBase):
     def _log_and_notify_error(self, message: str) -> None:
         """记录错误并写入系统消息中心"""
         logger.error(message)
-        self.systemmessage.put(message, title="站点刷流")
+        self.systemmessage.put(message, title="智能刷流")
 
     def __send_delete_message(self, torrent_task: dict, reason: str) -> None:
         """发送包含任务、站点、种子和原因的删种通知"""
