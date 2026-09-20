@@ -7,6 +7,7 @@
     "icon": "brush-flow.png",
     "author": "jxxghp,InfinityPacer,Seed680; enhanced locally",
     "level": 2,
+    "release": true,
     "system_version": ">=3.0.0",
     "history": {
       "v9.0.6": "清理完成或失败的进度结果展示8秒后自动收起，避免100%进度条长期占据状态页；完整结果继续保留在运行记录中。",
