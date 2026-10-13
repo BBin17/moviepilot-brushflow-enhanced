@@ -27,11 +27,31 @@ git diff --check
 
 发布时只提交智能刷流本次变更和构建产物，不要把工作区中的 `1lou*`、`qb-rules/` 或旧版 BrushFlow 的未完成修改一起提交。
 
+## 必须发布安装用的 Release 资产
+
+市场清单中的 `release: true` 表示安装依赖 GitHub Release，单独推送代码会出现“有更新”和更新说明，但版本历史没有可安装按钮。已核对1.1.5使用下列两种标签，同一压缩包同时附到两者：
+
+- `SmartBrushFlow_v1.2.0`：插件级版本历史识别的标签。
+- `v1.2.0`：仓库 Latest Release 使用的兼容标签。
+- 资产名：`smartbrushflow_v1.2.0.zip`；压缩包根目录必须是 `smartbrushflow/`，包含 `__init__.py`、`host.py`、所有相对导入模块和 `dist/assets/remoteEntry.js`。
+
+源码和生产构建提交、推送后，使用同一个已验证提交打包、创建两个 Release。示例中的版本号每次与 `version.py` 保持一致：
+
+```bash
+sbf_release_dir=$(mktemp -d /tmp/smartbrushflow-release.XXXXXX)
+git archive --format=zip --prefix=smartbrushflow/ --output="$sbf_release_dir/smartbrushflow_v1.2.0.zip" HEAD:plugins.v3/smartbrushflow
+unzip -l "$sbf_release_dir/smartbrushflow_v1.2.0.zip"
+gh release create SmartBrushFlow_v1.2.0 "$sbf_release_dir/smartbrushflow_v1.2.0.zip" --target "$(git rev-parse HEAD)" --title "SmartBrushFlow 1.2.0" --notes-file <本次发行说明文件> --latest=false
+gh release create v1.2.0 "$sbf_release_dir/smartbrushflow_v1.2.0.zip" --target "$(git rev-parse HEAD)" --title "SmartBrushFlow 1.2.0" --notes-file <同一发行说明文件> --latest
+```
+
+`git archive`只包含已提交文件，避免将 node_modules、Python缓存或NAS凭据混入发行包。必须核对所有新增的Python模块和前端组件构建产物都已提交。
+
 ## MoviePilot 安装流程
 
 当前 MoviePilot 地址：`http://192.168.8.10:13000`。
 
-1. 将本次源码、测试、清单和前端 `dist/` 一起提交，正常推送到仓库 `main`。仅更新已安装的 `SmartBrushFlow`。
+1. 将本次源码、测试、清单和前端 `dist/` 一起提交，正常推送到仓库 `main`，并按上节创建两个Release及zip资产。仅更新已安装的 `SmartBrushFlow`。
 2. 在 MoviePilot 的插件市场点击同步源，再到“我的插件”找到“智能刷流”。
 3. 从卡片菜单选择“更新”，在版本历史中点击“更新到最新版本”，核对卡片为 `1.2.0` 且运行中。
 4. 整页刷新并从侧栏进入“智能刷流”；浏览器持有旧远程组件时，后台更新后也必须刷新页面。
