@@ -48,6 +48,8 @@ gh release create v1.2.0 "$sbf_release_dir/smartbrushflow_v1.2.0.zip" --target "
 
 `git archive`只包含已提交文件，避免将 node_modules、Python缓存或NAS凭据混入发行包。必须核对所有新增的Python模块和前端组件构建产物都已提交。
 
+`gh release create --target`使用`git rev-parse HEAD`返回的完整提交SHA，不要用缩写SHA（GitHub可能拒绝，报`target_commitish is invalid`）。
+
 ## MoviePilot 安装流程
 
 当前 MoviePilot 地址：`http://192.168.8.10:13000`。
@@ -72,3 +74,10 @@ gh release create v1.2.0 "$sbf_release_dir/smartbrushflow_v1.2.0.zip" --target "
 - 新安全检查记录显示实际删除0；原“Tracker重复需求”保护已转为“低价值尚未连续确认”，仍保留连续确认和观察期安全门槛。本次未手动清理或提前启用删种。
 - 馒头新24小时累计增量显示约3.0GB；旧界面约0.6GB的显示口径问题已经修复。收益仍取决于真实下载需求和连通性，不能以升级代替收益验证。
 - 发布前通过170个后端测试、前端异步请求竞态测试、生产构建、ruff和版本一致性检查。
+
+## 1.2.1 侧栏调整
+
+- 只将`get_sidebar_nav()`中的`section`由`organize`改为`discovery`，保留`main`路由、`manage`权限和显示开关。
+- MoviePilot宿主将插件入口追加在分组内置菜单之后，因此发现组中显示“推荐 → 探索 → 智能刷流”。依据：[官方侧栏注册说明](https://github.com/jxxghp/MoviePilot-Plugins/blob/main/docs/faq/17-register-plugin-sidebar-nav.md)、[宿主导航合并实现](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/src/layouts/default/components/DefaultLayout.vue)。不要用DOM脚本移动宿主菜单。
+- 添加侧栏注册与启用/隐藏状态测试，171个后端测试及前端生产构建通过。更新不会改变原有收益策略或观察倒计时。
+- 已通过MoviePilot市场更新到1.2.1，整页刷新后实机确认入口位于“发现 → 推荐 → 探索 → 智能刷流”，原“整理”分组不再出现重复入口。
