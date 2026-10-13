@@ -1,10 +1,10 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { _ as _export_sfc, f as formatBytes, u as unwrapResponse, a as formatDateTime } from './_plugin-vue_export-helper-DusmmjDQ.js';
+import { _ as _export_sfc, f as formatBytes, u as unwrapResponse, a as torrentProgress, b as formatDateTime } from './_plugin-vue_export-helper-zQLOLLGb.js';
 
 const profileDefaults = {
-  conservative: { selection_min_score: 40, max_add_per_run: 2, deletion_score_threshold: 35, candidate_confirmations: 4, confirmation_minutes: 60, capacity_trigger_percent: 90, capacity_target_percent: 85, max_delete_per_run: 2, max_delete_percent_day: 3, max_release_percent_run: 2, max_release_percent_day: 4, max_release_gb_run: null, max_release_gb_day: null, cold_protection_minutes: 720, demand_confirmations: 2 },
-  balanced: { selection_min_score: 30, max_add_per_run: 5, deletion_score_threshold: 40, candidate_confirmations: 3, confirmation_minutes: 30, capacity_trigger_percent: 90, capacity_target_percent: 85, max_delete_per_run: 3, max_delete_percent_day: 5, max_release_percent_run: 4, max_release_percent_day: 8, max_release_gb_run: null, max_release_gb_day: null, cold_protection_minutes: 360, demand_confirmations: 2 },
-  aggressive: { selection_min_score: 22, max_add_per_run: 8, deletion_score_threshold: 48, candidate_confirmations: 2, confirmation_minutes: 15, capacity_trigger_percent: 90, capacity_target_percent: 85, max_delete_per_run: 5, max_delete_percent_day: 10, max_release_percent_run: 8, max_release_percent_day: 15, max_release_gb_run: null, max_release_gb_day: null, cold_protection_minutes: 180, demand_confirmations: 2 },
+  conservative: { selection_min_score: 40, max_add_per_run: 2, deletion_score_threshold: 35, candidate_confirmations: 4, confirmation_minutes: 60, capacity_trigger_percent: 90, capacity_target_percent: 85, max_delete_per_run: 2, max_delete_percent_day: 3, max_release_percent_run: 2, max_release_percent_day: 4, max_release_gb_run: null, max_release_gb_day: null, cold_protection_minutes: 720, demand_confirmations: 2, tracker_demand_grace_hours: 24 },
+  balanced: { selection_min_score: 30, max_add_per_run: 5, deletion_score_threshold: 40, candidate_confirmations: 3, confirmation_minutes: 30, capacity_trigger_percent: 90, capacity_target_percent: 85, max_delete_per_run: 3, max_delete_percent_day: 5, max_release_percent_run: 4, max_release_percent_day: 8, max_release_gb_run: null, max_release_gb_day: null, cold_protection_minutes: 360, demand_confirmations: 2, tracker_demand_grace_hours: 24 },
+  aggressive: { selection_min_score: 22, max_add_per_run: 8, deletion_score_threshold: 48, candidate_confirmations: 2, confirmation_minutes: 15, capacity_trigger_percent: 90, capacity_target_percent: 85, max_delete_per_run: 5, max_delete_percent_day: 10, max_release_percent_run: 8, max_release_percent_day: 15, max_release_gb_run: null, max_release_gb_day: null, cold_protection_minutes: 180, demand_confirmations: 2, tracker_demand_grace_hours: 24 },
 };
 
 function newTaskV9() {
@@ -19,7 +19,7 @@ function newTaskV9() {
     selection: { enabled: true, source: 'page', promotion: 'free', exclude_hr: true, site_hr_active: false, exclude_subscriptions: true, size_min_gb: 0.5, size_max_gb: null, seeder_range: null, published_min_minutes: null, published_max_minutes: null, timezone_offset: 0, include: null, exclude: null },
     deletion: { enabled: false, min_seed_hours: null, exclude_tags: null, delete_data: true, invalid_tracker_cleanup: false, invalid_tracker_confirmations: 2, paused: false, observation_started_at: null, observation_until: null, observation_extensions: 0 },
     strategy: { profile: 'balanced', overrides: { ...profileDefaults.balanced } },
-    health: { stalled_confirmations: 3, stalled_window_minutes: 30, slow_after_hours: 6, slow_speed_kbps: 128, auto_repair: true, pause_after_failed_repair: true },
+    health: { stalled_confirmations: 3, stalled_window_minutes: 30, slow_after_hours: 6, slow_speed_kbps: 128, max_download_hours: 48, auto_repair: true, pause_after_failed_repair: true },
   }
 }
 
@@ -89,27 +89,27 @@ function taskPreview(task, siteName = '当前站点') {
   const limit = Number(task.capacity.limit_gb || 0);
   const trigger = limit * Number(task.strategy.overrides.capacity_trigger_percent || 90) / 100;
   const target = limit * Number(task.strategy.overrides.capacity_target_percent || 85) / 100;
-  return `${selection}；容量达到${trigger.toFixed(0)}GB开始安全清理，降到${target.toFixed(0)}GB停止；保种不足${task.deletion.min_seed_hours || 0}小时、正在上传、有真实需求或未完成的种子不会删除。`
+  return `${selection}；容量达到${trigger.toFixed(0)}GB开始安全清理，降到${target.toFixed(0)}GB停止；保种不足${task.deletion.min_seed_hours || 0}小时、正在上传、有活动连接或未完成的种子不会删除；仅Tracker报下载者但完整${task.strategy.overrides.tracker_demand_grace_hours||24}小时零上传时重新评估。`
 }
 
 function healthTone(level) {
   return ({ error: 'error', warning: 'warning', info: 'info', success: 'success' })[level] || 'secondary'
 }
 
-const {renderList:_renderList$2,Fragment:_Fragment$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$2,toDisplayString:_toDisplayString$2,createElementVNode:_createElementVNode$2,unref:_unref$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,withCtx:_withCtx$2,createVNode:_createVNode$2,normalizeClass:_normalizeClass$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
+const {renderList:_renderList$3,Fragment:_Fragment$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$4,toDisplayString:_toDisplayString$4,createElementVNode:_createElementVNode$4,unref:_unref$4,createTextVNode:_createTextVNode$4,resolveComponent:_resolveComponent$4,withCtx:_withCtx$3,createVNode:_createVNode$4,normalizeClass:_normalizeClass$3,createCommentVNode:_createCommentVNode$4} = await importShared('vue');
 
 
-const _hoisted_1$2 = {
+const _hoisted_1$4 = {
   class: "task-health-grid",
   "aria-label": "刷流任务健康状态"
 };
-const _hoisted_2$2 = ["onClick"];
-const _hoisted_3$2 = { class: "task-health-card__top" };
-const _hoisted_4$2 = { class: "task-health-card__capacity" };
-const _hoisted_5$2 = { class: "task-health-card__meta" };
+const _hoisted_2$4 = ["onClick"];
+const _hoisted_3$3 = { class: "task-health-card__top" };
+const _hoisted_4$3 = { class: "task-health-card__capacity" };
+const _hoisted_5$3 = { class: "task-health-card__meta" };
 
 
-const _sfc_main$2 = {
+const _sfc_main$4 = {
   __name: 'TaskHealthCards',
   props: { tasks: { type: Array, default: () => [] }, selectedId: { type: String, default: '' } },
   emits: ['select', 'create'],
@@ -119,87 +119,87 @@ const _sfc_main$2 = {
 
 
 return (_ctx, _cache) => {
-  const _component_VChip = _resolveComponent$2("VChip");
-  const _component_VProgressLinear = _resolveComponent$2("VProgressLinear");
-  const _component_VIcon = _resolveComponent$2("VIcon");
+  const _component_VChip = _resolveComponent$4("VChip");
+  const _component_VProgressLinear = _resolveComponent$4("VProgressLinear");
+  const _component_VIcon = _resolveComponent$4("VIcon");
 
-  return (_openBlock$2(), _createElementBlock$2("section", _hoisted_1$2, [
-    (_openBlock$2(true), _createElementBlock$2(_Fragment$2, null, _renderList$2(__props.tasks, (task) => {
-      return (_openBlock$2(), _createElementBlock$2("button", {
+  return (_openBlock$4(), _createElementBlock$4("section", _hoisted_1$4, [
+    (_openBlock$4(true), _createElementBlock$4(_Fragment$3, null, _renderList$3(__props.tasks, (task) => {
+      return (_openBlock$4(), _createElementBlock$4("button", {
         key: task.id,
         type: "button",
-        class: _normalizeClass$2(["task-health-card", { selected: task.id === __props.selectedId }]),
+        class: _normalizeClass$3(["task-health-card", { selected: task.id === __props.selectedId }]),
         onClick: $event => (_ctx.$emit('select', task.id))
       }, [
-        _createElementVNode$2("div", _hoisted_3$2, [
-          _createElementVNode$2("div", null, [
-            _createElementVNode$2("strong", null, _toDisplayString$2(task.name), 1),
-            _createElementVNode$2("span", null, _toDisplayString$2(task.site_name) + " · " + _toDisplayString$2(task.downloader), 1)
+        _createElementVNode$4("div", _hoisted_3$3, [
+          _createElementVNode$4("div", null, [
+            _createElementVNode$4("strong", null, _toDisplayString$4(task.name), 1),
+            _createElementVNode$4("span", null, _toDisplayString$4(task.site_name) + " · " + _toDisplayString$4(task.downloader), 1)
           ]),
-          _createVNode$2(_component_VChip, {
+          _createVNode$4(_component_VChip, {
             size: "x-small",
-            color: _unref$2(healthTone)(task.strategy?.ui_summary?.health?.level),
+            color: _unref$4(healthTone)(task.strategy?.ui_summary?.health?.level),
             variant: "tonal"
           }, {
-            default: _withCtx$2(() => [
-              _createTextVNode$2(_toDisplayString$2(task.strategy?.ui_summary?.health?.title || '等待检查'), 1)
+            default: _withCtx$3(() => [
+              _createTextVNode$4(_toDisplayString$4(task.strategy?.ui_summary?.health?.title || '等待检查'), 1)
             ]),
             _: 2
           }, 1032, ["color"])
         ]),
-        _createElementVNode$2("div", _hoisted_4$2, [
-          _createElementVNode$2("span", null, _toDisplayString$2(_unref$2(formatBytes)(task.seeding_size)), 1),
-          _createElementVNode$2("small", null, _toDisplayString$2(task.strategy?.ui_summary?.capacity?.limit_bytes ? `上限 ${_unref$2(formatBytes)(task.strategy.ui_summary.capacity.limit_bytes)}` : '容量未设置'), 1)
+        _createElementVNode$4("div", _hoisted_4$3, [
+          _createElementVNode$4("span", null, _toDisplayString$4(_unref$4(formatBytes)(task.seeding_size)), 1),
+          _createElementVNode$4("small", null, _toDisplayString$4(task.strategy?.ui_summary?.capacity?.limit_bytes ? `上限 ${_unref$4(formatBytes)(task.strategy.ui_summary.capacity.limit_bytes)}` : '容量未设置'), 1)
         ]),
-        _createVNode$2(_component_VProgressLinear, {
+        _createVNode$4(_component_VProgressLinear, {
           "model-value": Math.min(task.strategy?.ui_summary?.capacity?.percent || 0, 100),
-          color: (task.strategy?.ui_summary?.capacity?.percent || 0) > 100 ? 'error' : _unref$2(healthTone)(task.strategy?.ui_summary?.health?.level),
+          color: (task.strategy?.ui_summary?.capacity?.percent || 0) > 100 ? 'error' : _unref$4(healthTone)(task.strategy?.ui_summary?.health?.level),
           height: "5",
           rounded: ""
         }, null, 8, ["model-value", "color"]),
-        _createElementVNode$2("div", _hoisted_5$2, [
-          _createElementVNode$2("span", null, "上传 " + _toDisplayString$2(Number(task.strategy?.uploaded_gb_per_day || 0).toFixed(1)) + " GB/天", 1),
-          _createElementVNode$2("span", null, "异常 " + _toDisplayString$2((task.strategy?.ui_summary?.download?.stalled_count || 0) + (task.strategy?.ui_summary?.download?.slow_count || 0) + (task.strategy?.ui_summary?.download?.queued_count || 0) + (task.strategy?.ui_summary?.download?.error_count || 0)), 1)
+        _createElementVNode$4("div", _hoisted_5$3, [
+          _createElementVNode$4("span", null, "24h 上传 " + _toDisplayString$4(_unref$4(formatBytes)(task.strategy?.ui_summary?.performance?.uploaded_bytes_24h||0)), 1),
+          _createElementVNode$4("span", null, "待处理 " + _toDisplayString$4(task.strategy?.ui_summary?.download?.issue_count||0), 1)
         ]),
-        _createElementVNode$2("p", null, _toDisplayString$2(task.strategy?.ui_summary?.health?.message || '首次检查后显示下一步。'), 1)
-      ], 10, _hoisted_2$2))
+        _createElementVNode$4("p", null, _toDisplayString$4(task.strategy?.ui_summary?.health?.message || '首次检查后显示下一步。'), 1)
+      ], 10, _hoisted_2$4))
     }), 128)),
     (!__props.tasks.length)
-      ? (_openBlock$2(), _createElementBlock$2("button", {
+      ? (_openBlock$4(), _createElementBlock$4("button", {
           key: 0,
           type: "button",
           class: "task-health-card task-health-card--create",
           onClick: _cache[0] || (_cache[0] = $event => (_ctx.$emit('create')))
         }, [
-          _createVNode$2(_component_VIcon, {
+          _createVNode$4(_component_VIcon, {
             icon: "mdi-plus-circle-outline",
             size: "24"
           }),
-          _cache[1] || (_cache[1] = _createElementVNode$2("span", null, [
-            _createElementVNode$2("strong", null, "新建刷流任务"),
-            _createElementVNode$2("small", null, "按四步向导完成设置")
+          _cache[1] || (_cache[1] = _createElementVNode$4("span", null, [
+            _createElementVNode$4("strong", null, "新建刷流任务"),
+            _createElementVNode$4("small", null, "按四步向导完成设置")
           ], -1))
         ]))
-      : _createCommentVNode$2("", true)
+      : _createCommentVNode$4("", true)
   ]))
 }
 }
 
 };
-const TaskHealthCards = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-e537eec1"]]);
+const TaskHealthCards = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-0b3fbeeb"]]);
 
-const {unref:_unref$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,openBlock:_openBlock$1,createElementBlock:_createElementBlock$1,createElementVNode:_createElementVNode$1,normalizeClass:_normalizeClass$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1} = await importShared('vue');
+const {unref:_unref$3,toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,withCtx:_withCtx$2,createVNode:_createVNode$3,renderList:_renderList$2,Fragment:_Fragment$2,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createElementVNode:_createElementVNode$3,normalizeClass:_normalizeClass$2,createBlock:_createBlock$2,createCommentVNode:_createCommentVNode$3} = await importShared('vue');
 
 
-const _hoisted_1$1 = { class: "wizard__steps" };
-const _hoisted_2$1 = ["onClick"];
-const _hoisted_3$1 = { class: "wizard__content" };
-const _hoisted_4$1 = {
+const _hoisted_1$3 = { class: "wizard__steps" };
+const _hoisted_2$3 = ["onClick"];
+const _hoisted_3$2 = { class: "wizard__content" };
+const _hoisted_4$2 = {
   key: 1,
   class: "wizard-section"
 };
-const _hoisted_5$1 = { class: "switches" };
-const _hoisted_6$1 = {
+const _hoisted_5$2 = { class: "switches" };
+const _hoisted_6$2 = {
   key: 2,
   class: "wizard-section"
 };
@@ -217,12 +217,12 @@ const _hoisted_11$1 = {
 const _hoisted_12$1 = { class: "switches" };
 const _hoisted_13$1 = { class: "wizard__summary" };
 
-const {computed: computed$1,ref: ref$1,watch} = await importShared('vue');
+const {computed: computed$1,ref: ref$1,watch: watch$1} = await importShared('vue');
 
 const {useDisplay} = await importShared('vuetify');
 
 
-const _sfc_main$1 = {
+const _sfc_main$3 = {
   __name: 'TaskWizardV9',
   props: { modelValue: Boolean, task: Object, sites: { type: Array, default: () => [] }, downloaders: { type: Array, default: () => [] }, api: { type: Object, default: () => ({}) }, pluginBase: { type: String, default: 'plugin/SmartBrushFlow' }, saving: Boolean },
   emits: ['update:modelValue', 'save'],
@@ -286,7 +286,7 @@ async function loadPaths(downloader = draft.value.identity.downloader) {
   }
 }
 
-watch(() => props.modelValue, value => {
+watch$1(() => props.modelValue, value => {
   if (value) {
     draft.value = cloneTaskV9(props.task);
     step.value = 1;
@@ -296,7 +296,7 @@ watch(() => props.modelValue, value => {
     loadPaths();
   }
 });
-watch(() => draft.value.identity.downloader, (value, previous) => {
+watch$1(() => draft.value.identity.downloader, (value, previous) => {
   if (!props.modelValue || !value || value === previous) return
   if (previous) draft.value.identity.save_path = null;
   loadPaths(value);
@@ -324,100 +324,100 @@ function confirmSave() {
 }
 
 return (_ctx, _cache) => {
-  const _component_VToolbarTitle = _resolveComponent$1("VToolbarTitle");
-  const _component_VSpacer = _resolveComponent$1("VSpacer");
-  const _component_VBtn = _resolveComponent$1("VBtn");
-  const _component_VToolbar = _resolveComponent$1("VToolbar");
-  const _component_VDivider = _resolveComponent$1("VDivider");
-  const _component_VAlert = _resolveComponent$1("VAlert");
-  const _component_VTextField = _resolveComponent$1("VTextField");
-  const _component_VCol = _resolveComponent$1("VCol");
-  const _component_VSelect = _resolveComponent$1("VSelect");
-  const _component_VCombobox = _resolveComponent$1("VCombobox");
-  const _component_VRow = _resolveComponent$1("VRow");
-  const _component_VSwitch = _resolveComponent$1("VSwitch");
-  const _component_VExpansionPanelTitle = _resolveComponent$1("VExpansionPanelTitle");
-  const _component_VExpansionPanelText = _resolveComponent$1("VExpansionPanelText");
-  const _component_VExpansionPanel = _resolveComponent$1("VExpansionPanel");
-  const _component_VExpansionPanels = _resolveComponent$1("VExpansionPanels");
-  const _component_VIcon = _resolveComponent$1("VIcon");
-  const _component_VChip = _resolveComponent$1("VChip");
-  const _component_VCardText = _resolveComponent$1("VCardText");
-  const _component_VCardActions = _resolveComponent$1("VCardActions");
-  const _component_VCard = _resolveComponent$1("VCard");
-  const _component_VCardTitle = _resolveComponent$1("VCardTitle");
-  const _component_VDialog = _resolveComponent$1("VDialog");
+  const _component_VToolbarTitle = _resolveComponent$3("VToolbarTitle");
+  const _component_VSpacer = _resolveComponent$3("VSpacer");
+  const _component_VBtn = _resolveComponent$3("VBtn");
+  const _component_VToolbar = _resolveComponent$3("VToolbar");
+  const _component_VDivider = _resolveComponent$3("VDivider");
+  const _component_VAlert = _resolveComponent$3("VAlert");
+  const _component_VTextField = _resolveComponent$3("VTextField");
+  const _component_VCol = _resolveComponent$3("VCol");
+  const _component_VSelect = _resolveComponent$3("VSelect");
+  const _component_VCombobox = _resolveComponent$3("VCombobox");
+  const _component_VRow = _resolveComponent$3("VRow");
+  const _component_VSwitch = _resolveComponent$3("VSwitch");
+  const _component_VExpansionPanelTitle = _resolveComponent$3("VExpansionPanelTitle");
+  const _component_VExpansionPanelText = _resolveComponent$3("VExpansionPanelText");
+  const _component_VExpansionPanel = _resolveComponent$3("VExpansionPanel");
+  const _component_VExpansionPanels = _resolveComponent$3("VExpansionPanels");
+  const _component_VIcon = _resolveComponent$3("VIcon");
+  const _component_VChip = _resolveComponent$3("VChip");
+  const _component_VCardText = _resolveComponent$3("VCardText");
+  const _component_VCardActions = _resolveComponent$3("VCardActions");
+  const _component_VCard = _resolveComponent$3("VCard");
+  const _component_VCardTitle = _resolveComponent$3("VCardTitle");
+  const _component_VDialog = _resolveComponent$3("VDialog");
 
-  return (_openBlock$1(), _createBlock$1(_component_VDialog, {
+  return (_openBlock$3(), _createBlock$2(_component_VDialog, {
     "model-value": __props.modelValue,
-    fullscreen: _unref$1(display).smAndDown.value,
+    fullscreen: _unref$3(display).smAndDown.value,
     "max-width": "72rem",
     scrollable: "",
-    "onUpdate:modelValue": _cache[50] || (_cache[50] = value => emit('update:modelValue', value))
+    "onUpdate:modelValue": _cache[52] || (_cache[52] = value => emit('update:modelValue', value))
   }, {
-    default: _withCtx$1(() => [
-      _createVNode$1(_component_VCard, { class: "wizard" }, {
-        default: _withCtx$1(() => [
-          _createVNode$1(_component_VToolbar, { color: "transparent" }, {
-            default: _withCtx$1(() => [
-              _createVNode$1(_component_VToolbarTitle, null, {
-                default: _withCtx$1(() => [
-                  _createTextVNode$1(_toDisplayString$1(draft.value.id ? '编辑任务' : '新建任务'), 1)
+    default: _withCtx$2(() => [
+      _createVNode$3(_component_VCard, { class: "wizard" }, {
+        default: _withCtx$2(() => [
+          _createVNode$3(_component_VToolbar, { color: "transparent" }, {
+            default: _withCtx$2(() => [
+              _createVNode$3(_component_VToolbarTitle, null, {
+                default: _withCtx$2(() => [
+                  _createTextVNode$3(_toDisplayString$3(draft.value.id ? '编辑任务' : '新建任务'), 1)
                 ]),
                 _: 1
               }),
-              _createVNode$1(_component_VSpacer),
-              _createVNode$1(_component_VBtn, {
+              _createVNode$3(_component_VSpacer),
+              _createVNode$3(_component_VBtn, {
                 icon: "mdi-close",
                 onClick: close
               })
             ]),
             _: 1
           }),
-          _createVNode$1(_component_VDivider),
-          _createVNode$1(_component_VCardText, { class: "wizard__body" }, {
-            default: _withCtx$1(() => [
-              _createElementVNode$1("nav", _hoisted_1$1, [
-                (_openBlock$1(), _createElementBlock$1(_Fragment$1, null, _renderList$1(steps, (label, index) => {
-                  return _createElementVNode$1("button", {
+          _createVNode$3(_component_VDivider),
+          _createVNode$3(_component_VCardText, { class: "wizard__body" }, {
+            default: _withCtx$2(() => [
+              _createElementVNode$3("nav", _hoisted_1$3, [
+                (_openBlock$3(), _createElementBlock$3(_Fragment$2, null, _renderList$2(steps, (label, index) => {
+                  return _createElementVNode$3("button", {
                     key: label,
                     type: "button",
-                    class: _normalizeClass$1({active:step.value===index+1,done:step.value>index+1}),
+                    class: _normalizeClass$2({active:step.value===index+1,done:step.value>index+1}),
                     onClick: $event => (step.value=index+1)
                   }, [
-                    _createElementVNode$1("span", null, _toDisplayString$1(index+1), 1),
-                    _createTextVNode$1(_toDisplayString$1(label), 1)
-                  ], 10, _hoisted_2$1)
+                    _createElementVNode$3("span", null, _toDisplayString$3(index+1), 1),
+                    _createTextVNode$3(_toDisplayString$3(label), 1)
+                  ], 10, _hoisted_2$3)
                 }), 64))
               ]),
-              _createElementVNode$1("main", _hoisted_3$1, [
+              _createElementVNode$3("main", _hoisted_3$2, [
                 (error.value)
-                  ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                  ? (_openBlock$3(), _createBlock$2(_component_VAlert, {
                       key: 0,
                       type: "error",
                       variant: "tonal",
                       density: "compact"
                     }, {
-                      default: _withCtx$1(() => [
-                        _createTextVNode$1(_toDisplayString$1(error.value), 1)
+                      default: _withCtx$2(() => [
+                        _createTextVNode$3(_toDisplayString$3(error.value), 1)
                       ]),
                       _: 1
                     }))
-                  : _createCommentVNode$1("", true),
+                  : _createCommentVNode$3("", true),
                 (step.value===1)
-                  ? (_openBlock$1(), _createElementBlock$1("section", _hoisted_4$1, [
-                      _cache[51] || (_cache[51] = _createElementVNode$1("div", null, [
-                        _createElementVNode$1("h3", null, "这个任务刷哪个站？"),
-                        _createElementVNode$1("p", null, "站点和下载器保存后仍可修改，历史数据会继续关联。")
+                  ? (_openBlock$3(), _createElementBlock$3("section", _hoisted_4$2, [
+                      _cache[53] || (_cache[53] = _createElementVNode$3("div", null, [
+                        _createElementVNode$3("h3", null, "这个任务刷哪个站？"),
+                        _createElementVNode$3("p", null, "站点和下载器保存后仍可修改，历史数据会继续关联。")
                       ], -1)),
-                      _createVNode$1(_component_VRow, null, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VCol, {
+                      _createVNode$3(_component_VRow, null, {
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.identity.name,
                                 "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((draft.value.identity.name) = $event)),
                                 label: "任务名称"
@@ -425,12 +425,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VSelect, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VSelect, {
                                 modelValue: draft.value.identity.site_id,
                                 "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((draft.value.identity.site_id) = $event)),
                                 items: __props.sites,
@@ -439,12 +439,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VSelect, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VSelect, {
                                 modelValue: draft.value.identity.downloader,
                                 "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((draft.value.identity.downloader) = $event)),
                                 items: __props.downloaders,
@@ -453,12 +453,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VCombobox, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VCombobox, {
                                 modelValue: draft.value.identity.save_path,
                                 "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((draft.value.identity.save_path) = $event)),
                                 items: directoryItems.value,
@@ -480,26 +480,26 @@ return (_ctx, _cache) => {
                         _: 1
                       }),
                       (pathsError.value)
-                        ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                        ? (_openBlock$3(), _createBlock$2(_component_VAlert, {
                             key: 0,
                             type: "info",
                             variant: "tonal",
                             density: "compact"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createTextVNode$1(_toDisplayString$1(pathsError.value), 1)
+                            default: _withCtx$2(() => [
+                              _createTextVNode$3(_toDisplayString$3(pathsError.value), 1)
                             ]),
                             _: 1
                           }))
-                        : _createCommentVNode$1("", true),
-                      _createVNode$1(_component_VRow, null, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VCol, {
+                        : _createCommentVNode$3("", true),
+                      _createVNode$3(_component_VRow, null, {
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "4"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.schedule.brush_interval,
                                 "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((draft.value.schedule.brush_interval) = $event)),
                                 modelModifiers: { number: true },
@@ -510,12 +510,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "4"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.schedule.check_interval,
                                 "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((draft.value.schedule.check_interval) = $event)),
                                 modelModifiers: { number: true },
@@ -526,12 +526,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "4"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.schedule.active_time_range,
                                 "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((draft.value.schedule.active_time_range) = $event)),
                                 label: "运行时段",
@@ -543,20 +543,20 @@ return (_ctx, _cache) => {
                         ]),
                         _: 1
                       }),
-                      _createElementVNode$1("div", _hoisted_5$1, [
-                        _createVNode$1(_component_VSwitch, {
+                      _createElementVNode$3("div", _hoisted_5$2, [
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.identity.enabled,
                           "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((draft.value.identity.enabled) = $event)),
                           label: "启用任务",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _createVNode$1(_component_VSwitch, {
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.identity.notify,
                           "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((draft.value.identity.notify) = $event)),
                           label: "发送通知",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _createVNode$1(_component_VSwitch, {
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.goal.enabled,
                           "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((draft.value.goal.enabled) = $event)),
                           label: "设置分享率目标",
@@ -564,14 +564,14 @@ return (_ctx, _cache) => {
                         }, null, 8, ["modelValue"])
                       ]),
                       (draft.value.goal.enabled)
-                        ? (_openBlock$1(), _createBlock$1(_component_VRow, { key: 1 }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VCol, {
+                        ? (_openBlock$3(), _createBlock$2(_component_VRow, { key: 1 }, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VCol, {
                                 cols: "12",
                                 md: "6"
                               }, {
-                                default: _withCtx$1(() => [
-                                  _createVNode$1(_component_VTextField, {
+                                default: _withCtx$2(() => [
+                                  _createVNode$3(_component_VTextField, {
                                     modelValue: draft.value.goal.ratio_target,
                                     "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((draft.value.goal.ratio_target) = $event)),
                                     modelModifiers: { number: true },
@@ -582,12 +582,12 @@ return (_ctx, _cache) => {
                                 ]),
                                 _: 1
                               }),
-                              _createVNode$1(_component_VCol, {
+                              _createVNode$3(_component_VCol, {
                                 cols: "12",
                                 md: "6"
                               }, {
-                                default: _withCtx$1(() => [
-                                  _createVNode$1(_component_VSelect, {
+                                default: _withCtx$2(() => [
+                                  _createVNode$3(_component_VSelect, {
                                     modelValue: draft.value.goal.reached_behavior,
                                     "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((draft.value.goal.reached_behavior) = $event)),
                                     label: "达到目标后",
@@ -599,23 +599,23 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }))
-                        : _createCommentVNode$1("", true)
+                        : _createCommentVNode$3("", true)
                     ]))
-                  : _createCommentVNode$1("", true),
+                  : _createCommentVNode$3("", true),
                 (step.value===2)
-                  ? (_openBlock$1(), _createElementBlock$1("section", _hoisted_6$1, [
-                      _cache[52] || (_cache[52] = _createElementVNode$1("div", null, [
-                        _createElementVNode$1("h3", null, "给任务多少空间和带宽？"),
-                        _createElementVNode$1("p", null, "任务容量独立计算；全局限制只负责阻止继续新增。")
+                  ? (_openBlock$3(), _createElementBlock$3("section", _hoisted_6$2, [
+                      _cache[54] || (_cache[54] = _createElementVNode$3("div", null, [
+                        _createElementVNode$3("h3", null, "给任务多少空间和带宽？"),
+                        _createElementVNode$3("p", null, "任务容量独立计算；全局限制只负责阻止继续新增。")
                       ], -1)),
-                      _createVNode$1(_component_VRow, null, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VCol, {
+                      _createVNode$3(_component_VRow, null, {
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.capacity.limit_gb,
                                 "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((draft.value.capacity.limit_gb) = $event)),
                                 modelModifiers: { number: true },
@@ -628,12 +628,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.capacity.max_downloads,
                                 "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((draft.value.capacity.max_downloads) = $event)),
                                 modelModifiers: { number: true },
@@ -644,12 +644,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.capacity.upload_limit_kbps,
                                 "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((draft.value.capacity.upload_limit_kbps) = $event)),
                                 modelModifiers: { number: true },
@@ -659,12 +659,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.capacity.download_limit_kbps,
                                 "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((draft.value.capacity.download_limit_kbps) = $event)),
                                 modelModifiers: { number: true },
@@ -674,12 +674,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.selection.size_min_gb,
                                 "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((draft.value.selection.size_min_gb) = $event)),
                                 modelModifiers: { number: true },
@@ -691,12 +691,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.selection.size_max_gb,
                                 "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((draft.value.selection.size_max_gb) = $event)),
                                 modelModifiers: { number: true },
@@ -712,34 +712,34 @@ return (_ctx, _cache) => {
                         _: 1
                       })
                     ]))
-                  : _createCommentVNode$1("", true),
+                  : _createCommentVNode$3("", true),
                 (step.value===3)
-                  ? (_openBlock$1(), _createElementBlock$1("section", _hoisted_7$1, [
-                      _cache[53] || (_cache[53] = _createElementVNode$1("div", null, [
-                        _createElementVNode$1("h3", null, "优先选择什么种子？"),
-                        _createElementVNode$1("p", null, "明确的体积、H&R和文本规则始终是硬过滤。")
+                  ? (_openBlock$3(), _createElementBlock$3("section", _hoisted_7$1, [
+                      _cache[55] || (_cache[55] = _createElementVNode$3("div", null, [
+                        _createElementVNode$3("h3", null, "优先选择什么种子？"),
+                        _createElementVNode$3("p", null, "明确的体积、H&R和文本规则始终是硬过滤。")
                       ], -1)),
-                      _createElementVNode$1("div", _hoisted_8$1, [
-                        (_openBlock$1(), _createElementBlock$1(_Fragment$1, null, _renderList$1(['conservative','balanced','aggressive'], (profile) => {
-                          return _createElementVNode$1("button", {
+                      _createElementVNode$3("div", _hoisted_8$1, [
+                        (_openBlock$3(), _createElementBlock$3(_Fragment$2, null, _renderList$2(['conservative','balanced','aggressive'], (profile) => {
+                          return _createElementVNode$3("button", {
                             key: profile,
                             type: "button",
-                            class: _normalizeClass$1({active:draft.value.strategy.profile===profile}),
+                            class: _normalizeClass$2({active:draft.value.strategy.profile===profile}),
                             onClick: $event => (chooseProfile(profile))
                           }, [
-                            _createElementVNode$1("strong", null, _toDisplayString$1(_unref$1(profileLabel)(profile)), 1),
-                            _createElementVNode$1("span", null, _toDisplayString$1(profile==='conservative'?'更少新增，适合空间紧张':profile==='balanced'?'收益与稳定性平衡':'更积极抢新种'), 1)
+                            _createElementVNode$3("strong", null, _toDisplayString$3(_unref$3(profileLabel)(profile)), 1),
+                            _createElementVNode$3("span", null, _toDisplayString$3(profile==='conservative'?'更少新增，适合空间紧张':profile==='balanced'?'收益与稳定性平衡':'更积极抢新种'), 1)
                           ], 10, _hoisted_9$1)
                         }), 64))
                       ]),
-                      _createVNode$1(_component_VRow, null, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VCol, {
+                      _createVNode$3(_component_VRow, null, {
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "4"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VSelect, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VSelect, {
                                 modelValue: draft.value.selection.promotion,
                                 "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((draft.value.selection.promotion) = $event)),
                                 label: "促销要求",
@@ -748,12 +748,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "4"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VSelect, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VSelect, {
                                 modelValue: draft.value.selection.source,
                                 "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((draft.value.selection.source) = $event)),
                                 label: "种子来源",
@@ -762,12 +762,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "4"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.strategy.overrides.max_add_per_run,
                                 "onUpdate:modelValue": [
                                   _cache[20] || (_cache[20] = $event => ((draft.value.strategy.overrides.max_add_per_run) = $event)),
@@ -785,34 +785,34 @@ return (_ctx, _cache) => {
                         ]),
                         _: 1
                       }),
-                      _createElementVNode$1("div", _hoisted_10$1, [
-                        _createVNode$1(_component_VSwitch, {
+                      _createElementVNode$3("div", _hoisted_10$1, [
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.selection.enabled,
                           "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((draft.value.selection.enabled) = $event)),
                           label: "启用智能选种",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _createVNode$1(_component_VSwitch, {
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.selection.exclude_hr,
                           "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((draft.value.selection.exclude_hr) = $event)),
                           label: "排除H&R",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _createVNode$1(_component_VSwitch, {
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.selection.exclude_subscriptions,
                           "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((draft.value.selection.exclude_subscriptions) = $event)),
                           label: "排除订阅内容",
                           "hide-details": ""
                         }, null, 8, ["modelValue"])
                       ]),
-                      _createVNode$1(_component_VRow, null, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VCol, {
+                      _createVNode$3(_component_VRow, null, {
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.selection.include,
                                 "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((draft.value.selection.include) = $event)),
                                 label: "必须包含（正则，可选）"
@@ -820,12 +820,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.selection.exclude,
                                 "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((draft.value.selection.exclude) = $event)),
                                 label: "必须排除（正则，可选）"
@@ -837,39 +837,39 @@ return (_ctx, _cache) => {
                         _: 1
                       })
                     ]))
-                  : _createCommentVNode$1("", true),
+                  : _createCommentVNode$3("", true),
                 (step.value===4)
-                  ? (_openBlock$1(), _createElementBlock$1("section", _hoisted_11$1, [
-                      _cache[62] || (_cache[62] = _createElementVNode$1("div", null, [
-                        _createElementVNode$1("h3", null, "如何安全释放空间？"),
-                        _createElementVNode$1("p", null, "新启用或风险扩大后先观察，不会立即删除。")
+                  ? (_openBlock$3(), _createElementBlock$3("section", _hoisted_11$1, [
+                      _cache[64] || (_cache[64] = _createElementVNode$3("div", null, [
+                        _createElementVNode$3("h3", null, "如何安全释放空间？"),
+                        _createElementVNode$3("p", null, "新启用或风险扩大后先观察，不会立即删除。")
                       ], -1)),
-                      _createVNode$1(_component_VSwitch, {
+                      _createVNode$3(_component_VSwitch, {
                         modelValue: draft.value.deletion.enabled,
                         "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((draft.value.deletion.enabled) = $event)),
                         color: "error",
                         label: "启用统一智能删种"
                       }, null, 8, ["modelValue"]),
                       (draft.value.deletion.enabled)
-                        ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                        ? (_openBlock$3(), _createBlock$2(_component_VAlert, {
                             key: 0,
                             type: "info",
                             variant: "tonal"
                           }, {
-                            default: _withCtx$1(() => [...(_cache[54] || (_cache[54] = [
-                              _createTextVNode$1("前48小时只记录候选，不会实际删除；未完成、H&R、未到最低保种、正在上传或有真实需求的种子永久保护。", -1)
+                            default: _withCtx$2(() => [...(_cache[56] || (_cache[56] = [
+                              _createTextVNode$3("前48小时只记录候选，不会实际删除；未完成、H&R、未到最低保种、正在上传或有活动连接的种子保持保护；Tracker单独报下载者时等待实际上传验证。", -1)
                             ]))]),
                             _: 1
                           }))
-                        : _createCommentVNode$1("", true),
-                      _createVNode$1(_component_VRow, null, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VCol, {
+                        : _createCommentVNode$3("", true),
+                      _createVNode$3(_component_VRow, null, {
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.deletion.min_seed_hours,
                                 "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((draft.value.deletion.min_seed_hours) = $event)),
                                 modelModifiers: { number: true },
@@ -880,12 +880,12 @@ return (_ctx, _cache) => {
                             ]),
                             _: 1
                           }),
-                          _createVNode$1(_component_VCol, {
+                          _createVNode$3(_component_VCol, {
                             cols: "12",
                             md: "6"
                           }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VTextField, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VTextField, {
                                 modelValue: draft.value.deletion.exclude_tags,
                                 "onUpdate:modelValue": _cache[28] || (_cache[28] = $event => ((draft.value.deletion.exclude_tags) = $event)),
                                 label: "永不删除的标签"
@@ -896,46 +896,46 @@ return (_ctx, _cache) => {
                         ]),
                         _: 1
                       }),
-                      _createElementVNode$1("div", _hoisted_12$1, [
-                        _createVNode$1(_component_VSwitch, {
+                      _createElementVNode$3("div", _hoisted_12$1, [
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.deletion.delete_data,
                           "onUpdate:modelValue": _cache[29] || (_cache[29] = $event => ((draft.value.deletion.delete_data) = $event)),
                           color: "error",
                           label: "清理时同时删除下载数据",
                           "hide-details": ""
                         }, null, 8, ["modelValue"]),
-                        _createVNode$1(_component_VSwitch, {
+                        _createVNode$3(_component_VSwitch, {
                           modelValue: draft.value.deletion.invalid_tracker_cleanup,
                           "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((draft.value.deletion.invalid_tracker_cleanup) = $event)),
                           label: "清理Tracker明确拒绝的任务（保留数据）",
                           "hide-details": ""
                         }, null, 8, ["modelValue"])
                       ]),
-                      _createVNode$1(_component_VExpansionPanels, {
+                      _createVNode$3(_component_VExpansionPanels, {
                         modelValue: advanced.value,
-                        "onUpdate:modelValue": _cache[47] || (_cache[47] = $event => ((advanced).value = $event)),
+                        "onUpdate:modelValue": _cache[49] || (_cache[49] = $event => ((advanced).value = $event)),
                         class: "mt-4"
                       }, {
-                        default: _withCtx$1(() => [
-                          _createVNode$1(_component_VExpansionPanel, { value: true }, {
-                            default: _withCtx$1(() => [
-                              _createVNode$1(_component_VExpansionPanelTitle, null, {
-                                default: _withCtx$1(() => [...(_cache[55] || (_cache[55] = [
-                                  _createTextVNode$1("高级设置（安全参数组）", -1)
+                        default: _withCtx$2(() => [
+                          _createVNode$3(_component_VExpansionPanel, { value: true }, {
+                            default: _withCtx$2(() => [
+                              _createVNode$3(_component_VExpansionPanelTitle, null, {
+                                default: _withCtx$2(() => [...(_cache[57] || (_cache[57] = [
+                                  _createTextVNode$3("高级设置（安全参数组）", -1)
                                 ]))]),
                                 _: 1
                               }),
-                              _createVNode$1(_component_VExpansionPanelText, null, {
-                                default: _withCtx$1(() => [
-                                  _cache[57] || (_cache[57] = _createElementVNode$1("h4", null, "评分", -1)),
-                                  _createVNode$1(_component_VRow, null, {
-                                    default: _withCtx$1(() => [
-                                      _createVNode$1(_component_VCol, {
+                              _createVNode$3(_component_VExpansionPanelText, null, {
+                                default: _withCtx$2(() => [
+                                  _cache[59] || (_cache[59] = _createElementVNode$3("h4", null, "评分", -1)),
+                                  _createVNode$3(_component_VRow, null, {
+                                    default: _withCtx$2(() => [
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.selection_min_score,
                                             "onUpdate:modelValue": [
                                               _cache[31] || (_cache[31] = $event => ((draft.value.strategy.overrides.selection_min_score) = $event)),
@@ -952,12 +952,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.deletion_score_threshold,
                                             "onUpdate:modelValue": [
                                               _cache[32] || (_cache[32] = $event => ((draft.value.strategy.overrides.deletion_score_threshold) = $event)),
@@ -977,15 +977,15 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 1
                                   }),
-                                  _cache[58] || (_cache[58] = _createElementVNode$1("h4", null, "容量控制", -1)),
-                                  _createVNode$1(_component_VRow, null, {
-                                    default: _withCtx$1(() => [
-                                      _createVNode$1(_component_VCol, {
+                                  _cache[60] || (_cache[60] = _createElementVNode$3("h4", null, "容量控制", -1)),
+                                  _createVNode$3(_component_VRow, null, {
+                                    default: _withCtx$2(() => [
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.capacity_trigger_percent,
                                             "onUpdate:modelValue": [
                                               _cache[33] || (_cache[33] = $event => ((draft.value.strategy.overrides.capacity_trigger_percent) = $event)),
@@ -1002,12 +1002,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.capacity_target_percent,
                                             "onUpdate:modelValue": [
                                               _cache[34] || (_cache[34] = $event => ((draft.value.strategy.overrides.capacity_target_percent) = $event)),
@@ -1027,15 +1027,15 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 1
                                   }),
-                                  _cache[59] || (_cache[59] = _createElementVNode$1("h4", null, "候选确认", -1)),
-                                  _createVNode$1(_component_VRow, null, {
-                                    default: _withCtx$1(() => [
-                                      _createVNode$1(_component_VCol, {
+                                  _cache[61] || (_cache[61] = _createElementVNode$3("h4", null, "候选确认", -1)),
+                                  _createVNode$3(_component_VRow, null, {
+                                    default: _withCtx$2(() => [
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.candidate_confirmations,
                                             "onUpdate:modelValue": [
                                               _cache[35] || (_cache[35] = $event => ((draft.value.strategy.overrides.candidate_confirmations) = $event)),
@@ -1050,12 +1050,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.confirmation_minutes,
                                             "onUpdate:modelValue": [
                                               _cache[36] || (_cache[36] = $event => ((draft.value.strategy.overrides.confirmation_minutes) = $event)),
@@ -1072,15 +1072,15 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 1
                                   }),
-                                  _cache[60] || (_cache[60] = _createElementVNode$1("h4", null, "删除限额", -1)),
-                                  _createVNode$1(_component_VRow, null, {
-                                    default: _withCtx$1(() => [
-                                      _createVNode$1(_component_VCol, {
+                                  _cache[62] || (_cache[62] = _createElementVNode$3("h4", null, "删除限额", -1)),
+                                  _createVNode$3(_component_VRow, null, {
+                                    default: _withCtx$2(() => [
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "4"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.max_delete_per_run,
                                             "onUpdate:modelValue": [
                                               _cache[37] || (_cache[37] = $event => ((draft.value.strategy.overrides.max_delete_per_run) = $event)),
@@ -1094,12 +1094,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "4"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.max_release_percent_run,
                                             "onUpdate:modelValue": [
                                               _cache[38] || (_cache[38] = $event => ((draft.value.strategy.overrides.max_release_percent_run) = $event)),
@@ -1114,12 +1114,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "4"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.max_release_percent_day,
                                             "onUpdate:modelValue": [
                                               _cache[39] || (_cache[39] = $event => ((draft.value.strategy.overrides.max_release_percent_day) = $event)),
@@ -1134,12 +1134,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.max_release_gb_run,
                                             "onUpdate:modelValue": [
                                               _cache[40] || (_cache[40] = $event => ((draft.value.strategy.overrides.max_release_gb_run) = $event)),
@@ -1154,12 +1154,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "6"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.strategy.overrides.max_release_gb_day,
                                             "onUpdate:modelValue": [
                                               _cache[41] || (_cache[41] = $event => ((draft.value.strategy.overrides.max_release_gb_day) = $event)),
@@ -1177,15 +1177,15 @@ return (_ctx, _cache) => {
                                     ]),
                                     _: 1
                                   }),
-                                  _cache[61] || (_cache[61] = _createElementVNode$1("h4", null, "下载健康", -1)),
-                                  _createVNode$1(_component_VRow, null, {
-                                    default: _withCtx$1(() => [
-                                      _createVNode$1(_component_VCol, {
+                                  _cache[63] || (_cache[63] = _createElementVNode$3("h4", null, "下载健康", -1)),
+                                  _createVNode$3(_component_VRow, null, {
+                                    default: _withCtx$2(() => [
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "3"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.health.stalled_confirmations,
                                             "onUpdate:modelValue": _cache[42] || (_cache[42] = $event => ((draft.value.health.stalled_confirmations) = $event)),
                                             modelModifiers: { number: true },
@@ -1197,12 +1197,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "3"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.health.stalled_window_minutes,
                                             "onUpdate:modelValue": _cache[43] || (_cache[43] = $event => ((draft.value.health.stalled_window_minutes) = $event)),
                                             modelModifiers: { number: true },
@@ -1213,12 +1213,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "3"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.health.slow_after_hours,
                                             "onUpdate:modelValue": _cache[44] || (_cache[44] = $event => ((draft.value.health.slow_after_hours) = $event)),
                                             modelModifiers: { number: true },
@@ -1229,12 +1229,12 @@ return (_ctx, _cache) => {
                                         ]),
                                         _: 1
                                       }),
-                                      _createVNode$1(_component_VCol, {
+                                      _createVNode$3(_component_VCol, {
                                         cols: "12",
                                         md: "3"
                                       }, {
-                                        default: _withCtx$1(() => [
-                                          _createVNode$1(_component_VTextField, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
                                             modelValue: draft.value.health.slow_speed_kbps,
                                             "onUpdate:modelValue": _cache[45] || (_cache[45] = $event => ((draft.value.health.slow_speed_kbps) = $event)),
                                             modelModifiers: { number: true },
@@ -1244,16 +1244,57 @@ return (_ctx, _cache) => {
                                           }, null, 8, ["modelValue"])
                                         ]),
                                         _: 1
+                                      }),
+                                      _createVNode$3(_component_VCol, {
+                                        cols: "12",
+                                        md: "6"
+                                      }, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
+                                            modelValue: draft.value.health.max_download_hours,
+                                            "onUpdate:modelValue": _cache[46] || (_cache[46] = $event => ((draft.value.health.max_download_hours) = $event)),
+                                            modelModifiers: { number: true },
+                                            type: "number",
+                                            min: "1",
+                                            max: "720",
+                                            label: "下载超时提醒（小时）",
+                                            hint: "默认48小时，只标记处理，不自动删除未完成数据",
+                                            "persistent-hint": ""
+                                          }, null, 8, ["modelValue"])
+                                        ]),
+                                        _: 1
+                                      }),
+                                      _createVNode$3(_component_VCol, {
+                                        cols: "12",
+                                        md: "6"
+                                      }, {
+                                        default: _withCtx$2(() => [
+                                          _createVNode$3(_component_VTextField, {
+                                            modelValue: draft.value.strategy.overrides.tracker_demand_grace_hours,
+                                            "onUpdate:modelValue": [
+                                              _cache[47] || (_cache[47] = $event => ((draft.value.strategy.overrides.tracker_demand_grace_hours) = $event)),
+                                              markCustom
+                                            ],
+                                            modelModifiers: { number: true },
+                                            type: "number",
+                                            min: "6",
+                                            max: "168",
+                                            label: "Tracker需求等待上传（小时）",
+                                            hint: "完整观测期内零上传且无连接时，重新评估价值；真实上传立即保护",
+                                            "persistent-hint": ""
+                                          }, null, 8, ["modelValue"])
+                                        ]),
+                                        _: 1
                                       })
                                     ]),
                                     _: 1
                                   }),
-                                  _createVNode$1(_component_VBtn, {
+                                  _createVNode$3(_component_VBtn, {
                                     variant: "tonal",
-                                    onClick: _cache[46] || (_cache[46] = $event => (chooseProfile(draft.value.strategy.profile==='custom'?'balanced':draft.value.strategy.profile)))
+                                    onClick: _cache[48] || (_cache[48] = $event => (chooseProfile(draft.value.strategy.profile==='custom'?'balanced':draft.value.strategy.profile)))
                                   }, {
-                                    default: _withCtx$1(() => [...(_cache[56] || (_cache[56] = [
-                                      _createTextVNode$1("恢复当前预设", -1)
+                                    default: _withCtx$2(() => [...(_cache[58] || (_cache[58] = [
+                                      _createTextVNode$3("恢复当前预设", -1)
                                     ]))]),
                                     _: 1
                                   })
@@ -1267,19 +1308,19 @@ return (_ctx, _cache) => {
                         _: 1
                       }, 8, ["modelValue"])
                     ]))
-                  : _createCommentVNode$1("", true)
+                  : _createCommentVNode$3("", true)
               ]),
-              _createElementVNode$1("aside", _hoisted_13$1, [
-                _createVNode$1(_component_VIcon, {
+              _createElementVNode$3("aside", _hoisted_13$1, [
+                _createVNode$3(_component_VIcon, {
                   icon: "mdi-text-box-check-outline",
                   color: "primary",
                   size: "28"
                 }),
-                _cache[63] || (_cache[63] = _createElementVNode$1("h3", null, "保存后会这样运行", -1)),
-                _createElementVNode$1("p", null, _toDisplayString$1(preview.value), 1),
-                _createVNode$1(_component_VChip, { variant: "tonal" }, {
-                  default: _withCtx$1(() => [
-                    _createTextVNode$1(_toDisplayString$1(_unref$1(profileLabel)(draft.value.strategy.profile)), 1)
+                _cache[65] || (_cache[65] = _createElementVNode$3("h3", null, "保存后会这样运行", -1)),
+                _createElementVNode$3("p", null, _toDisplayString$3(preview.value), 1),
+                _createVNode$3(_component_VChip, { variant: "tonal" }, {
+                  default: _withCtx$2(() => [
+                    _createTextVNode$3(_toDisplayString$3(_unref$3(profileLabel)(draft.value.strategy.profile)), 1)
                   ]),
                   _: 1
                 })
@@ -1287,52 +1328,52 @@ return (_ctx, _cache) => {
             ]),
             _: 1
           }),
-          _createVNode$1(_component_VDivider),
-          _createVNode$1(_component_VCardActions, null, {
-            default: _withCtx$1(() => [
+          _createVNode$3(_component_VDivider),
+          _createVNode$3(_component_VCardActions, null, {
+            default: _withCtx$2(() => [
               (step.value>1)
-                ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                ? (_openBlock$3(), _createBlock$2(_component_VBtn, {
                     key: 0,
                     variant: "text",
                     onClick: previous
                   }, {
-                    default: _withCtx$1(() => [...(_cache[64] || (_cache[64] = [
-                      _createTextVNode$1("上一步", -1)
+                    default: _withCtx$2(() => [...(_cache[66] || (_cache[66] = [
+                      _createTextVNode$3("上一步", -1)
                     ]))]),
                     _: 1
                   }))
-                : _createCommentVNode$1("", true),
-              _createVNode$1(_component_VSpacer),
-              _createVNode$1(_component_VBtn, {
+                : _createCommentVNode$3("", true),
+              _createVNode$3(_component_VSpacer),
+              _createVNode$3(_component_VBtn, {
                 variant: "text",
                 onClick: close
               }, {
-                default: _withCtx$1(() => [...(_cache[65] || (_cache[65] = [
-                  _createTextVNode$1("取消", -1)
+                default: _withCtx$2(() => [...(_cache[67] || (_cache[67] = [
+                  _createTextVNode$3("取消", -1)
                 ]))]),
                 _: 1
               }),
               (step.value<4)
-                ? (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                ? (_openBlock$3(), _createBlock$2(_component_VBtn, {
                     key: 1,
                     color: "primary",
                     variant: "flat",
                     onClick: next
                   }, {
-                    default: _withCtx$1(() => [...(_cache[66] || (_cache[66] = [
-                      _createTextVNode$1("下一步", -1)
+                    default: _withCtx$2(() => [...(_cache[68] || (_cache[68] = [
+                      _createTextVNode$3("下一步", -1)
                     ]))]),
                     _: 1
                   }))
-                : (_openBlock$1(), _createBlock$1(_component_VBtn, {
+                : (_openBlock$3(), _createBlock$2(_component_VBtn, {
                     key: 2,
                     color: "primary",
                     variant: "flat",
                     loading: __props.saving,
                     onClick: save
                   }, {
-                    default: _withCtx$1(() => [...(_cache[67] || (_cache[67] = [
-                      _createTextVNode$1("保存任务", -1)
+                    default: _withCtx$2(() => [...(_cache[69] || (_cache[69] = [
+                      _createTextVNode$3("保存任务", -1)
                     ]))]),
                     _: 1
                   }, 8, ["loading"]))
@@ -1342,59 +1383,59 @@ return (_ctx, _cache) => {
         ]),
         _: 1
       }),
-      _createVNode$1(_component_VDialog, {
+      _createVNode$3(_component_VDialog, {
         modelValue: saveConfirmOpen.value,
-        "onUpdate:modelValue": _cache[49] || (_cache[49] = $event => ((saveConfirmOpen).value = $event)),
+        "onUpdate:modelValue": _cache[51] || (_cache[51] = $event => ((saveConfirmOpen).value = $event)),
         "max-width": "32rem"
       }, {
-        default: _withCtx$1(() => [
-          _createVNode$1(_component_VCard, null, {
-            default: _withCtx$1(() => [
-              _createVNode$1(_component_VCardTitle, null, {
-                default: _withCtx$1(() => [...(_cache[68] || (_cache[68] = [
-                  _createTextVNode$1("确认保存这套规则", -1)
+        default: _withCtx$2(() => [
+          _createVNode$3(_component_VCard, null, {
+            default: _withCtx$2(() => [
+              _createVNode$3(_component_VCardTitle, null, {
+                default: _withCtx$2(() => [...(_cache[70] || (_cache[70] = [
+                  _createTextVNode$3("确认保存这套规则", -1)
                 ]))]),
                 _: 1
               }),
-              _createVNode$1(_component_VCardText, null, {
-                default: _withCtx$1(() => [
-                  _createElementVNode$1("p", null, _toDisplayString$1(preview.value), 1),
+              _createVNode$3(_component_VCardText, null, {
+                default: _withCtx$2(() => [
+                  _createElementVNode$3("p", null, _toDisplayString$3(preview.value), 1),
                   (draft.value.deletion.enabled)
-                    ? (_openBlock$1(), _createBlock$1(_component_VAlert, {
+                    ? (_openBlock$3(), _createBlock$2(_component_VAlert, {
                         key: 0,
                         type: "warning",
                         variant: "tonal",
                         class: "mt-4"
                       }, {
-                        default: _withCtx$1(() => [
-                          _createTextVNode$1(" 自动删种将" + _toDisplayString$1(draft.value.deletion.delete_data ? '删除下载器任务和对应数据' : '只移除下载器任务并保留数据') + "；新启用或放宽安全参数后会先进入观察期，硬安全线始终有效。 ", 1)
+                        default: _withCtx$2(() => [
+                          _createTextVNode$3(" 自动删种将" + _toDisplayString$3(draft.value.deletion.delete_data ? '删除下载器任务和对应数据' : '只移除下载器任务并保留数据') + "；新启用或放宽安全参数后会先进入观察期，硬安全线始终有效。 ", 1)
                         ]),
                         _: 1
                       }))
-                    : _createCommentVNode$1("", true)
+                    : _createCommentVNode$3("", true)
                 ]),
                 _: 1
               }),
-              _createVNode$1(_component_VCardActions, null, {
-                default: _withCtx$1(() => [
-                  _createVNode$1(_component_VSpacer),
-                  _createVNode$1(_component_VBtn, {
+              _createVNode$3(_component_VCardActions, null, {
+                default: _withCtx$2(() => [
+                  _createVNode$3(_component_VSpacer),
+                  _createVNode$3(_component_VBtn, {
                     variant: "text",
-                    onClick: _cache[48] || (_cache[48] = $event => (saveConfirmOpen.value=false))
+                    onClick: _cache[50] || (_cache[50] = $event => (saveConfirmOpen.value=false))
                   }, {
-                    default: _withCtx$1(() => [...(_cache[69] || (_cache[69] = [
-                      _createTextVNode$1("返回修改", -1)
+                    default: _withCtx$2(() => [...(_cache[71] || (_cache[71] = [
+                      _createTextVNode$3("返回修改", -1)
                     ]))]),
                     _: 1
                   }),
-                  _createVNode$1(_component_VBtn, {
+                  _createVNode$3(_component_VBtn, {
                     color: "primary",
                     variant: "flat",
                     loading: __props.saving,
                     onClick: confirmSave
                   }, {
-                    default: _withCtx$1(() => [...(_cache[70] || (_cache[70] = [
-                      _createTextVNode$1("确认保存", -1)
+                    default: _withCtx$2(() => [...(_cache[72] || (_cache[72] = [
+                      _createTextVNode$3("确认保存", -1)
                     ]))]),
                     _: 1
                   }, 8, ["loading"])
@@ -1414,7 +1455,264 @@ return (_ctx, _cache) => {
 }
 
 };
-const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-5985b3e7"]]);
+const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$3, [['__scopeId',"data-v-b6a50c2f"]]);
+
+const {createElementVNode:_createElementVNode$2,unref:_unref$2,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$2,resolveComponent:_resolveComponent$2,createVNode:_createVNode$2,openBlock:_openBlock$2,createElementBlock:_createElementBlock$2,createCommentVNode:_createCommentVNode$2} = await importShared('vue');
+
+
+const _hoisted_1$2 = {
+  class: "performance",
+  "aria-label": "上传收益和保种情况"
+};
+const _hoisted_2$2 = {
+  key: 0,
+  class: "connection-note"
+};
+
+const _sfc_main$2 = {
+  __name: 'TaskPerformance',
+  props: { performance: { type: Object, default: () => ({}) }, loading: Boolean },
+  emits: ['inspect'],
+  setup(__props) {
+
+
+
+
+return (_ctx, _cache) => {
+  const _component_VIcon = _resolveComponent$2("VIcon");
+
+  return (_openBlock$2(), _createElementBlock$2("section", _hoisted_1$2, [
+    _createElementVNode$2("div", null, [
+      _cache[1] || (_cache[1] = _createElementVNode$2("span", null, "过去 24 小时上传", -1)),
+      _createElementVNode$2("strong", null, _toDisplayString$2(__props.loading ? '—' : _unref$2(formatBytes)(__props.performance.uploaded_bytes_24h)), 1),
+      _createElementVNode$2("small", null, _toDisplayString$2(__props.performance.observation_complete ? '完整观测窗口' : `部分观测 · ${__props.performance.partial_window_count || 0} 个窗口尚不完整`), 1)
+    ]),
+    _createElementVNode$2("div", null, [
+      _cache[2] || (_cache[2] = _createElementVNode$2("span", null, "有上传的种子", -1)),
+      _createElementVNode$2("strong", null, [
+        _createTextVNode$2(_toDisplayString$2(__props.performance.productive_count || 0), 1),
+        _createElementVNode$2("em", null, " / " + _toDisplayString$2(__props.performance.active_count || 0), 1)
+      ]),
+      _cache[3] || (_cache[3] = _createElementVNode$2("small", null, "近期真正贡献上传", -1))
+    ]),
+    _createElementVNode$2("div", null, [
+      _cache[5] || (_cache[5] = _createElementVNode$2("span", null, "已达到最低保种时长", -1)),
+      _createElementVNode$2("strong", null, [
+        _createTextVNode$2(_toDisplayString$2(__props.performance.minimum_met_count || 0), 1),
+        _cache[4] || (_cache[4] = _createElementVNode$2("em", null, " 个", -1))
+      ]),
+      _createElementVNode$2("small", null, _toDisplayString$2(__props.performance.minimum_pending_count || 0) + " 个完成种子仍在保种", 1)
+    ]),
+    _createElementVNode$2("button", {
+      type: "button",
+      onClick: _cache[0] || (_cache[0] = $event => (_ctx.$emit('inspect')))
+    }, [
+      _cache[6] || (_cache[6] = _createElementVNode$2("span", null, "已达保种 · 24 小时零上传", -1)),
+      _createElementVNode$2("strong", null, _toDisplayString$2(_unref$2(formatBytes)(__props.performance.zero_upload_bytes)), 1),
+      _createElementVNode$2("small", null, [
+        _createTextVNode$2(_toDisplayString$2(__props.performance.zero_upload_count || 0) + " 个 · 查看占用与保护原因 ", 1),
+        _createVNode$2(_component_VIcon, {
+          icon: "mdi-chevron-right",
+          size: "14"
+        })
+      ])
+    ]),
+    (__props.performance.observation_complete&&__props.performance.tracker_demand_count>0&&__props.performance.connected_count===0&&__props.performance.productive_count===0)
+      ? (_openBlock$2(), _createElementBlock$2("p", _hoisted_2$2, "Tracker 显示下载需求，但当前没有有效连接且近期零上传；若轮换种子后仍无改善，可核查下载器端口与 Tracker 连通性。"))
+      : _createCommentVNode$2("", true)
+  ]))
+}
+}
+
+};
+const TaskPerformance = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-d391c9b8"]]);
+
+const {createElementVNode:_createElementVNode$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,createElementBlock:_createElementBlock$1,unref:_unref$1,normalizeClass:_normalizeClass$1} = await importShared('vue');
+
+
+const _hoisted_1$1 = { class: "seed-panel" };
+const _hoisted_2$1 = { class: "seed-filters" };
+const _hoisted_3$1 = { class: "seed-scroll" };
+const _hoisted_4$1 = ["title"];
+const _hoisted_5$1 = { key: 0 };
+const _hoisted_6$1 = {
+  key: 0,
+  class: "seed-empty"
+};
+
+const _sfc_main$1 = {
+  __name: 'TaskTorrentTable',
+  props: { torrents: { type: Object, default: () => ({items:[],total:0,page:1,page_size:50}) }, state: String, sort: String, filter: String, loading: Boolean },
+  emits: ['state','sort','filter','page'],
+  setup(__props) {
+
+
+
+
+return (_ctx, _cache) => {
+  const _component_VBtn = _resolveComponent$1("VBtn");
+  const _component_VBtnToggle = _resolveComponent$1("VBtnToggle");
+  const _component_VSelect = _resolveComponent$1("VSelect");
+  const _component_VProgressLinear = _resolveComponent$1("VProgressLinear");
+  const _component_VChip = _resolveComponent$1("VChip");
+  const _component_VPagination = _resolveComponent$1("VPagination");
+
+  return (_openBlock$1(), _createElementBlock$1("section", _hoisted_1$1, [
+    _createElementVNode$1("header", null, [
+      _createElementVNode$1("div", null, [
+        _cache[4] || (_cache[4] = _createElementVNode$1("h3", null, "托管种子", -1)),
+        _createElementVNode$1("small", null, "共 " + _toDisplayString$1(__props.torrents.total || 0) + " 个 · 保种时长按下载器实际做种时间计算", 1)
+      ]),
+      _createVNode$1(_component_VBtnToggle, {
+        "model-value": __props.state,
+        mandatory: "",
+        density: "compact",
+        "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => (_ctx.$emit('state',$event)))
+      }, {
+        default: _withCtx$1(() => [
+          _createVNode$1(_component_VBtn, { value: "active" }, {
+            default: _withCtx$1(() => [...(_cache[5] || (_cache[5] = [
+              _createTextVNode$1("活跃", -1)
+            ]))]),
+            _: 1
+          }),
+          _createVNode$1(_component_VBtn, { value: "deleted" }, {
+            default: _withCtx$1(() => [...(_cache[6] || (_cache[6] = [
+              _createTextVNode$1("已删除", -1)
+            ]))]),
+            _: 1
+          }),
+          _createVNode$1(_component_VBtn, { value: "all" }, {
+            default: _withCtx$1(() => [...(_cache[7] || (_cache[7] = [
+              _createTextVNode$1("全部", -1)
+            ]))]),
+            _: 1
+          })
+        ]),
+        _: 1
+      }, 8, ["model-value"])
+    ]),
+    _createElementVNode$1("div", _hoisted_2$1, [
+      _createVNode$1(_component_VSelect, {
+        "model-value": __props.filter,
+        label: "查看",
+        density: "compact",
+        "hide-details": "",
+        items: [{title:'全部种子',value:'all'},{title:'已达保种 · 24h零上传',value:'zero_upload'},{title:'已满足最低保种',value:'min_seed_met'},{title:'下载需要处理',value:'download_issues'}],
+        "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => (_ctx.$emit('filter',$event)))
+      }, null, 8, ["model-value"]),
+      _createVNode$1(_component_VSelect, {
+        "model-value": __props.sort,
+        label: "排序",
+        density: "compact",
+        "hide-details": "",
+        items: [{title:'最近添加',value:'newest'},{title:'单位容量收益最低优先',value:'yield'},{title:'体积最大优先',value:'size'},{title:'保种时间最长优先',value:'seed_time'}],
+        "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => (_ctx.$emit('sort',$event)))
+      }, null, 8, ["model-value"])
+    ]),
+    (__props.loading)
+      ? (_openBlock$1(), _createBlock$1(_component_VProgressLinear, {
+          key: 0,
+          indeterminate: "",
+          height: "2",
+          color: "primary"
+        }))
+      : _createCommentVNode$1("", true),
+    _createElementVNode$1("div", _hoisted_3$1, [
+      _createElementVNode$1("table", null, [
+        _cache[8] || (_cache[8] = _createElementVNode$1("thead", null, [
+          _createElementVNode$1("tr", null, [
+            _createElementVNode$1("th", null, "种子 / 加入时间"),
+            _createElementVNode$1("th", null, "体积"),
+            _createElementVNode$1("th", null, "实际保种"),
+            _createElementVNode$1("th", null, "24h 上传"),
+            _createElementVNode$1("th", null, "累计上传"),
+            _createElementVNode$1("th", null, "分享率"),
+            _createElementVNode$1("th", null, "下载状态")
+          ])
+        ], -1)),
+        _createElementVNode$1("tbody", null, [
+          (_openBlock$1(true), _createElementBlock$1(_Fragment$1, null, _renderList$1(__props.torrents.items, (item) => {
+            return (_openBlock$1(), _createElementBlock$1("tr", {
+              key: item.hash
+            }, [
+              _createElementVNode$1("td", null, [
+                _createElementVNode$1("strong", {
+                  title: item.title
+                }, _toDisplayString$1(item.title || item.hash), 9, _hoisted_4$1),
+                _createElementVNode$1("small", null, "已加入 " + _toDisplayString$1(Number(item.age_hours||0).toFixed(0)) + " 小时", 1)
+              ]),
+              _createElementVNode$1("td", null, _toDisplayString$1(_unref$1(formatBytes)(item.size)), 1),
+              _createElementVNode$1("td", null, [
+                _createElementVNode$1("span", {
+                  class: _normalizeClass$1({met:item.min_seed_met})
+                }, _toDisplayString$1(item.seeding_hours===null?'未知':`${item.seeding_hours}h`), 3),
+                _createElementVNode$1("small", null, _toDisplayString$1(item.min_seed_met?'已满足':`最低 ${item.min_seed_hours||0}h`), 1)
+              ]),
+              _createElementVNode$1("td", null, [
+                _createTextVNode$1(_toDisplayString$1(item.upload_coverage_hours_24h>0?_unref$1(formatBytes)(item.upload_delta_24h):'待观测'), 1),
+                (!item.upload_window_observed_24h)
+                  ? (_openBlock$1(), _createElementBlock$1("small", _hoisted_5$1, "观测 " + _toDisplayString$1(Number(item.upload_coverage_hours_24h||0).toFixed(1)) + "h", 1))
+                  : _createCommentVNode$1("", true)
+              ]),
+              _createElementVNode$1("td", null, _toDisplayString$1(_unref$1(formatBytes)(item.uploaded)), 1),
+              _createElementVNode$1("td", null, _toDisplayString$1(Number(item.ratio||0).toFixed(2)), 1),
+              _createElementVNode$1("td", null, [
+                _createVNode$1(_component_VChip, {
+                  size: "x-small",
+                  variant: "tonal",
+                  color: item.download_overdue?'warning':item.deleted?'secondary':item.completed?'success':'default'
+                }, {
+                  default: _withCtx$1(() => [
+                    _createTextVNode$1(_toDisplayString$1(item.deleted?'已移除':item.download_overdue?'下载超时':item.download_health_label||(item.completed?'已完成':`${_unref$1(torrentProgress)(item)}%`)), 1)
+                  ]),
+                  _: 2
+                }, 1032, ["color"])
+              ])
+            ]))
+          }), 128))
+        ])
+      ]),
+      (!__props.torrents.items?.length)
+        ? (_openBlock$1(), _createElementBlock$1("p", _hoisted_6$1, _toDisplayString$1(__props.loading?'正在读取种子…':'当前筛选下没有种子'), 1))
+        : _createCommentVNode$1("", true)
+    ]),
+    (__props.torrents.total>__props.torrents.page_size)
+      ? (_openBlock$1(), _createBlock$1(_component_VPagination, {
+          key: 1,
+          "model-value": __props.torrents.page,
+          length: Math.ceil(__props.torrents.total/__props.torrents.page_size),
+          "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => (_ctx.$emit('page',$event)))
+        }, null, 8, ["model-value", "length"]))
+      : _createCommentVNode$1("", true)
+  ]))
+}
+}
+
+};
+const TaskTorrentTable = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-36e5725f"]]);
+
+/** Only the newest request may update the selected task or its loading state. */
+function createLatestRequest() {
+  let sequence = 0;
+  return {
+    invalidate() { sequence += 1; },
+    async run(request, { commit, error, settled } = {}) {
+      const ticket = ++sequence;
+      try {
+        const result = await request();
+        if (ticket !== sequence) return false
+        commit?.(result);
+        return true
+      } catch (failure) {
+        if (ticket === sequence) error?.(failure);
+        return false
+      } finally {
+        if (ticket === sequence) settled?.();
+      }
+    },
+  }
+}
 
 const {resolveComponent:_resolveComponent,createVNode:_createVNode,createElementVNode:_createElementVNode,createTextVNode:_createTextVNode,withCtx:_withCtx,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,toDisplayString:_toDisplayString,createElementBlock:_createElementBlock,unref:_unref,normalizeClass:_normalizeClass,renderList:_renderList,Fragment:_Fragment,normalizeStyle:_normalizeStyle,withKeys:_withKeys} = await importShared('vue');
 
@@ -1437,58 +1735,65 @@ const _hoisted_9 = { class: "capacity-track" };
 const _hoisted_10 = { class: "capacity-labels" };
 const _hoisted_11 = { class: "bf9__summary-grid" };
 const _hoisted_12 = { key: 0 };
-const _hoisted_13 = { class: "bf9__drill-link" };
-const _hoisted_14 = { class: "bf9__drill-link" };
+const _hoisted_13 = { key: 1 };
+const _hoisted_14 = { key: 2 };
 const _hoisted_15 = { class: "bf9__drill-link" };
-const _hoisted_16 = { class: "bf9__facts" };
-const _hoisted_17 = { class: "panel mt-4" };
-const _hoisted_18 = { class: "bf9__list-head" };
-const _hoisted_19 = { class: "torrent-list" };
-const _hoisted_20 = {
-  key: 0,
-  class: "bf9__empty small"
-};
-const _hoisted_21 = { class: "panel mt-4" };
-const _hoisted_22 = { class: "event-list" };
-const _hoisted_23 = {
+const _hoisted_16 = { class: "bf9__drill-link" };
+const _hoisted_17 = { class: "bf9__drill-link" };
+const _hoisted_18 = { class: "bf9__facts" };
+const _hoisted_19 = { class: "panel mt-4" };
+const _hoisted_20 = { class: "event-list" };
+const _hoisted_21 = {
   key: 0,
   class: "reason"
 };
-const _hoisted_24 = {
+const _hoisted_22 = {
   key: 1,
   class: "error"
 };
-const _hoisted_25 = {
+const _hoisted_23 = {
   key: 0,
   class: "bf9__empty small"
 };
-const _hoisted_26 = { class: "insight-list" };
-const _hoisted_27 = {
+const _hoisted_24 = { class: "insight-intro" };
+const _hoisted_25 = { class: "insight-list" };
+const _hoisted_26 = {
   key: 0,
   class: "bf9__empty small"
 };
-const _hoisted_28 = { class: "insight-intro" };
-const _hoisted_29 = { class: "insight-list" };
-const _hoisted_30 = { class: "insight-metric" };
-const _hoisted_31 = {
+const _hoisted_27 = { class: "insight-list" };
+const _hoisted_28 = {
   key: 0,
   class: "bf9__empty small"
 };
-const _hoisted_32 = { class: "insight-list" };
-const _hoisted_33 = { class: "insight-metric" };
-const _hoisted_34 = {
+const _hoisted_29 = { class: "insight-intro" };
+const _hoisted_30 = { class: "insight-list" };
+const _hoisted_31 = { class: "insight-metric" };
+const _hoisted_32 = {
   key: 0,
   class: "bf9__empty small"
 };
-const _hoisted_35 = { class: "settings-grid" };
-const _hoisted_36 = { class: "settings-title" };
-const _hoisted_37 = { class: "preview-metrics" };
-const _hoisted_38 = {
+const _hoisted_33 = { class: "insight-list" };
+const _hoisted_34 = { key: 0 };
+const _hoisted_35 = { key: 0 };
+const _hoisted_36 = { key: 1 };
+const _hoisted_37 = { key: 1 };
+const _hoisted_38 = { class: "insight-metric" };
+const _hoisted_39 = { class: "download-issue-actions" };
+const _hoisted_40 = {
+  key: 0,
+  class: "bf9__empty small"
+};
+const _hoisted_41 = { class: "settings-grid" };
+const _hoisted_42 = { class: "settings-title" };
+const _hoisted_43 = { class: "preview-metrics" };
+const _hoisted_44 = {
   key: 1,
   class: "preview-list"
 };
+const _hoisted_45 = { class: "manual-delete-target" };
 
-const {computed,inject,onMounted,onUnmounted,ref} = await importShared('vue');
+const {computed,inject,onMounted,onUnmounted,ref,watch} = await importShared('vue');
 
 
 const _sfc_main = {
@@ -1502,10 +1807,13 @@ const emit = __emit;
 const toast = inject('moviepilot:toast', null);
 const base = computed(() => `plugin/${props.pluginId}`);
 const loading = ref(false), saving = ref(false), error = ref('');
+const detailLoading = ref(false), detailRequests = createLatestRequest();
 const status = ref({ enabled:false, summary:{}, tasks:[], options:{sites:[],downloaders:[]} });
 const selectedId = ref(''), detail = ref(null), tab = ref('status'), torrentState = ref('active'), page = ref(1);
+const torrentSort = ref('newest'), torrentFilter = ref('all');
 const wizard = ref(false), wizardTask = ref(newTaskV9());
 const confirmOpen = ref(false), confirmAction = ref(null);
+const deleteConfirmOpen = ref(false), deleteTarget = ref(null), deleteData = ref(false);
 const cleanupPreviewOpen = ref(false), cleanupPreview = ref(null);
 const settingsOpen = ref(false), settingsDraft = ref({});
 const changeNotice = ref('');
@@ -1515,10 +1823,10 @@ const tasks = computed(() => status.value.tasks || []);
 const selected = computed(() => tasks.value.find(item => item.id === selectedId.value) || null);
 const strategy = computed(() => detail.value?.strategy || selected.value?.strategy || {});
 const summary = computed(() => strategy.value.ui_summary || {});
-const task = computed(() => detail.value?.task || null);
+const task = computed(() => detail.value?.task?.id === selectedId.value ? detail.value.task : null);
 const torrents = computed(() => detail.value?.torrents || {items:[],total:0,page:1,page_size:50});
 const runs = computed(() => detail.value?.runs || []);
-const insightTitle = computed(() => ({selection:'选种详情',deletion:'安全删种详情',download:'下载健康详情'}[insightKind.value]||'策略详情'));
+const insightTitle = computed(() => ({selection:'选种详情',deletion:'安全删种详情',download:'下载健康详情',income:'长期零上传占用'}[insightKind.value]||'策略详情'));
 const selectionDetails = computed(() => strategy.value.selection_explanations || []);
 const deletionDetails = computed(() => strategy.value.pending_candidates || strategy.value.deletion_explanations || []);
 const downloadDetails = computed(() => summary.value.download?.issues || []);
@@ -1526,23 +1834,58 @@ const cleanupProgress = computed(() => detail.value?.summary?.cleanup_progress |
 const cleanupActive = computed(() => ['queued','running'].includes(cleanupProgress.value?.state));
 
 function notify(message, type='success'){ if(typeof toast?.[type]==='function') toast[type](message); else if(type==='error') error.value=message; }
-async function loadDetail(){ if(!selectedId.value)return; try{ const [baseDetail,torrentData,eventData]=await Promise.all([props.api.get(`${base.value}/tasks/${selectedId.value}`),props.api.get(`${base.value}/tasks/${selectedId.value}/torrents?state=${torrentState.value}&page=${page.value}&page_size=50`),props.api.get(`${base.value}/tasks/${selectedId.value}/events?page=1&page_size=20`)]); detail.value={...(unwrapResponse(baseDetail)||{}),torrents:unwrapResponse(torrentData),runs:unwrapResponse(eventData)?.items||[]}; }catch(err){ error.value=err?.message||'加载任务失败'; } }
+async function loadDetail(){
+  const id=selectedId.value, section=tab.value;
+  if(!id)return
+  detailLoading.value=true;
+  await detailRequests.run(async()=>{
+    const requests=[props.api.get(`${base.value}/tasks/${id}`)];
+    if(section==='torrents')requests.push(props.api.get(`${base.value}/tasks/${id}/torrents?state=${torrentState.value}&page=${page.value}&page_size=50&sort=${torrentSort.value}&filter=${torrentFilter.value}`));
+    if(section==='history')requests.push(props.api.get(`${base.value}/tasks/${id}/events?page=1&page_size=20`));
+    const responses=await Promise.all(requests);
+    const data=unwrapResponse(responses[0])||{};
+    if(data.task?.id!==id)throw new Error('任务详情不匹配，请刷新后重试')
+    if(section==='torrents')data.torrents=unwrapResponse(responses[1]);
+    if(section==='history')data.runs=unwrapResponse(responses[1])?.items||[];
+    return data
+  },{commit(data){if(id===selectedId.value)detail.value={...(detail.value||{}),...data};},error(err){error.value=err?.message||'加载任务失败';},settled(){detailLoading.value=false;}});
+}
 async function load(){ loading.value=true; try{ status.value=unwrapResponse(await props.api.get(`${base.value}/status`))||status.value; if(!tasks.value.some(item=>item.id===selectedId.value)) selectedId.value=tasks.value[0]?.id||''; await loadDetail(); scheduleCleanupDismiss(cleanupProgress.value); }catch(err){ error.value=err?.message||'加载刷流状态失败'; }finally{ loading.value=false; } }
 function openSettings(){ const signin=status.value.signin||{}; settingsDraft.value={enabled:!!status.value.enabled,show_sidebar_nav:status.value.show_sidebar_nav!==false,global_disksize:status.value.global_disksize??null,global_maxdlcount:status.value.global_maxdlcount??null,global_maxupspeed:status.value.global_maxupspeed??null,global_maxdlspeed:status.value.global_maxdlspeed??null,signin_enabled:!!signin.enabled,signin_notify:signin.notify!==false,signin_cron:signin.cron||'17 7 * * *',signin_sites:[...(signin.site_ids||[])]}; settingsOpen.value=true; }
 async function saveSettings(){ saving.value=true; try{ status.value=unwrapResponse(await props.api.post(`${base.value}/settings`,settingsDraft.value))||status.value; settingsOpen.value=false; await load(); notify('插件设置已保存'); }catch(err){ notify(err?.message||'保存设置失败','error'); }finally{ saving.value=false; } }
 async function runSignin(){ saving.value=true; try{ unwrapResponse(await props.api.post(`${base.value}/signin/run`,{})); await load(); notify('站点签到已执行'); }catch(err){ notify(err?.message||'签到失败','error'); }finally{ saving.value=false; } }
-async function selectTask(id){ selectedId.value=id; page.value=1; torrentState.value='active'; tab.value='status'; await loadDetail(); }
+async function selectTask(id){ detailRequests.invalidate(); detail.value=null; selectedId.value=id; page.value=1; torrentState.value='active'; torrentFilter.value='all'; torrentSort.value='newest'; tab.value='status'; insightOpen.value=false; await loadDetail(); }
 function createTask(){ wizardTask.value=newTaskV9(); wizard.value=true; }
 function editTask(){ if(!task.value)return; wizardTask.value=cloneTaskV9(task.value); wizard.value=true; }
 async function saveTask(payload){ saving.value=true; try{ const previous=task.value; const response=payload.id?await props.api.put(`${base.value}/tasks/${payload.id}`,payload):await props.api.post(`${base.value}/tasks`,payload); const data=unwrapResponse(response); selectedId.value=data?.task?.id||payload.id||selectedId.value; wizard.value=false; const effects=[]; if(!previous) effects.push('已建立新的选种与检查计划'); else { if(JSON.stringify(previous.capacity)!==JSON.stringify(payload.capacity)) effects.push('容量或速度限制已更新'); if(JSON.stringify(previous.selection)!==JSON.stringify(payload.selection)) effects.push('选种硬过滤与评分入口已更新'); if(JSON.stringify(previous.deletion)!==JSON.stringify(payload.deletion)||JSON.stringify(previous.strategy)!==JSON.stringify(payload.strategy)) effects.push('删种安全策略已更新，风险扩大时重新进入观察'); } changeNotice.value=effects.join('；')||'任务基础信息已更新'; await load(); notify(payload.id?'任务已更新':'任务已创建'); }catch(err){ notify(err?.message||'保存任务失败','error'); }finally{ saving.value=false; } }
-function askAction(action){ confirmAction.value=action; confirmOpen.value=true; }
-async function executeAction(){ const action=confirmAction.value; if(!action)return; confirmOpen.value=false; if(action.code==='open_editor'){ confirmAction.value=null; editTask(); return } saving.value=true; try{ unwrapResponse(await props.api.post(`${base.value}/tasks/${selectedId.value}/actions/${action.code}`,action.payload||{})); await load(); notify(action.success||'操作已提交'); if(action.code==='force_cleanup') startCleanupPolling(); }catch(err){ notify(err?.message||'操作失败','error'); }finally{ saving.value=false; confirmAction.value=null; } }
+function askAction(action){ confirmAction.value={...action,taskId:action.taskId||(action.code==='force_cleanup'?cleanupPreview.value?.task_id:selectedId.value)}; confirmOpen.value=true; }
+async function executeAction(){ const action=confirmAction.value; if(!action)return; confirmOpen.value=false; if(action.code==='open_editor'){ confirmAction.value=null; editTask(); return } saving.value=true; try{ unwrapResponse(await props.api.post(`${base.value}/tasks/${action.taskId}/actions/${action.code}`,action.payload||{})); await load(); notify(action.success||'操作已提交'); if(action.code==='force_cleanup') startCleanupPolling(); }catch(err){ notify(err?.message||'操作失败','error'); }finally{ saving.value=false; confirmAction.value=null; } }
 function topAction(code,label,confirm,success){ askAction({code,label,confirm,success,tone:'primary'}); }
 function openInsight(kind){ insightKind.value=kind; insightOpen.value=true; }
+function askDeleteUnhealthyDownload(item){ insightOpen.value=false; deleteTarget.value={...item,taskId:selectedId.value}; deleteData.value=false; deleteConfirmOpen.value=true; }
+async function confirmDeleteUnhealthyDownload(){
+  const item=deleteTarget.value;
+  if(!item?.hash||!selectedId.value)return
+  saving.value=true;
+  try{
+    const requestId=`manual-${Date.now()}-${Math.random().toString(36).slice(2,10)}`;
+    const response=await props.api.post(`${base.value}/tasks/${item.taskId}/actions/delete_unhealthy_download`,{
+      torrent_hash:item.hash, request_id:requestId, confirm:true, delete_data:deleteData.value,
+    });
+    unwrapResponse(response);
+    deleteConfirmOpen.value=false;
+    await load();
+    notify(response?.message||'已提交单种移除请求');
+  }catch(err){ deleteConfirmOpen.value=false; await load(); notify(err?.message||'移除下载失败','error'); }
+  finally{ saving.value=false; deleteTarget.value=null; }
+}
 async function askForceCleanup(){
   if(!task.value)return
+  const id=selectedId.value, revision=task.value.revision;
   try{
-    cleanupPreview.value=unwrapResponse(await props.api.post(`${base.value}/tasks/${selectedId.value}/cleanup/preview`,{revision:task.value.revision,relax_limits:true}));
+    const preview=unwrapResponse(await props.api.post(`${base.value}/tasks/${id}/cleanup/preview`,{revision,relax_limits:true}));
+    if(id!==selectedId.value)return
+    cleanupPreview.value=preview;
     cleanupPreviewOpen.value=true;
   }catch(err){ notify(err?.message||'生成清理预览失败','error'); }
 }
@@ -1555,11 +1898,16 @@ function confirmCleanupPreview(){
 }
 function startCleanupPolling(){ window.clearTimeout(cleanupTimer); cleanupTimer=window.setTimeout(pollCleanup,700); }
 function scheduleCleanupDismiss(progress){ if(!progress||!['completed','failed'].includes(progress.state))return; const delay=Math.max(Number(progress.display_until||0)*1000-Date.now(),0)+150; window.clearTimeout(cleanupTimer); cleanupTimer=window.setTimeout(()=>load(),delay); }
-async function pollCleanup(){ if(!selectedId.value)return; try{ const data=unwrapResponse(await props.api.get(`${base.value}/tasks/${selectedId.value}`))||{}; detail.value={...(detail.value||{}),...data}; const progress=data.summary?.cleanup_progress; if(['queued','running'].includes(progress?.state)){ cleanupTimer=window.setTimeout(pollCleanup,900); return } await load(); scheduleCleanupDismiss(progress); if(progress?.state==='completed') notify(progress.message||'手动安全清理完成'); else if(progress?.state==='failed') notify(progress.error||'手动安全清理失败','error'); }catch(err){ cleanupTimer=window.setTimeout(pollCleanup,1600); } }
-function reasonText(codes){ const labels={below_selection_threshold:'低于选种门槛',incomplete:'未完成下载',hit_and_run:'H&R保护',min_seed_time:'未达到最低保种时间',active_demand:'存在下载需求',trusted_active_demand:'可信下载需求',real_upload:'近期真实上传',active_connection:'存在活动连接',excluded_tag:'命中排除标签',low_value_unconfirmed:'低价值尚未连续确认',byte_cap:'容量额度已用尽',daily_count_cap:'每日数量额度已用尽',run_count_cap:'单轮数量额度已用尽'}; return (codes||[]).map(code=>labels[code]||code).join(' · ')||'暂无补充原因' }
+async function pollCleanup(){ const id=selectedId.value; if(!id)return; try{ const data=unwrapResponse(await props.api.get(`${base.value}/tasks/${id}`))||{}; if(id!==selectedId.value||data.task?.id!==id)return; detail.value={...(detail.value||{}),...data}; const progress=data.summary?.cleanup_progress; if(['queued','running'].includes(progress?.state)){ cleanupTimer=window.setTimeout(pollCleanup,900); return } await load(); scheduleCleanupDismiss(progress); if(progress?.state==='completed') notify(progress.message||'手动安全清理完成'); else if(progress?.state==='failed') notify(progress.error||'手动安全清理失败','error'); }catch(err){ cleanupTimer=window.setTimeout(pollCleanup,1600); } }
+function reasonText(codes){ const labels={below_selection_threshold:'低于选种门槛',incomplete:'未完成下载',hit_and_run:'H&R保护',min_seed_time:'未达到最低保种时间',active_demand:'存在下载需求',trusted_active_demand:'Tracker需求仍在观察保护中',real_upload:'近期真实上传',active_connection:'存在活动连接',excluded_tag:'命中排除标签',low_value_unconfirmed:'低价值尚未连续确认',byte_cap:'容量额度已用尽',daily_count_cap:'每日数量额度已用尽',run_count_cap:'单轮数量额度已用尽',low_retention_value:'低收益，等待安全清理',smart_cold_cooldown:'仍在闲置保护时间内',valuable_seed:'仍有保留价值',safety_data_unknown:'下载器安全数据不完整',large_without_trusted_demand:'大种相对下载需求不足',oversized_for_task:'单种超过任务容量的25%',tracker_demand_unknown:'下载需求未知'}; return (codes||[]).map(code=>labels[code]||code).join(' · ')||'暂无补充原因' }
+function downloadReason(item){ const labels={no_download_progress:'长时间没有下载进度',no_download_progress_with_connection:'有连接但长时间没有下载进度',low_effective_download_speed:'持续下载速度低于策略阈值',downloader_paused:'下载任务已暂停',downloader_queue:'下载器正在排队',downloader_checking:'下载器正在校验文件',downloader_error:'下载器报告任务错误',missing_download_measurement:'下载器未提供有效进度数据',insufficient_history:'观测记录不足，暂不能判断',confirming_no_progress:'正在确认是否停止下载',progressing:'下载仍有进度'}; return labels[item.reason]||item.reason||item.label||'需要检查下载状态' }
 async function changeTorrentState(value){ torrentState.value=value; page.value=1; await loadDetail(); }
 async function changePage(value){ page.value=value; await loadDetail(); }
-onMounted(()=>{ load(); timer=window.setInterval(load,30000); }); onUnmounted(()=>{ window.clearInterval(timer); window.clearTimeout(cleanupTimer); });
+async function changeTorrentSort(value){torrentSort.value=value;page.value=1;await loadDetail();}
+async function changeTorrentFilter(value){torrentFilter.value=value;page.value=1;await loadDetail();}
+function openZeroUploadList(){insightOpen.value=false;torrentFilter.value='zero_upload';torrentSort.value='size';page.value=1;tab.value='torrents';}
+watch(tab,()=>loadDetail());
+onMounted(()=>{ load(); timer=window.setInterval(load,30000); }); onUnmounted(()=>{ detailRequests.invalidate(); window.clearInterval(timer); window.clearTimeout(cleanupTimer); });
 
 return (_ctx, _cache) => {
   const _component_VIcon = _resolveComponent("VIcon");
@@ -1574,11 +1922,9 @@ return (_ctx, _cache) => {
   const _component_VExpansionPanel = _resolveComponent("VExpansionPanel");
   const _component_VExpansionPanels = _resolveComponent("VExpansionPanels");
   const _component_VWindowItem = _resolveComponent("VWindowItem");
-  const _component_VBtnToggle = _resolveComponent("VBtnToggle");
-  const _component_VChip = _resolveComponent("VChip");
-  const _component_VPagination = _resolveComponent("VPagination");
   const _component_VWindow = _resolveComponent("VWindow");
   const _component_VCardTitle = _resolveComponent("VCardTitle");
+  const _component_VChip = _resolveComponent("VChip");
   const _component_VCardText = _resolveComponent("VCardText");
   const _component_VSpacer = _resolveComponent("VSpacer");
   const _component_VCardActions = _resolveComponent("VCardActions");
@@ -1587,6 +1933,7 @@ return (_ctx, _cache) => {
   const _component_VSwitch = _resolveComponent("VSwitch");
   const _component_VTextField = _resolveComponent("VTextField");
   const _component_VSelect = _resolveComponent("VSelect");
+  const _component_VCheckbox = _resolveComponent("VCheckbox");
 
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createElementVNode("header", _hoisted_2, [
@@ -1597,7 +1944,7 @@ return (_ctx, _cache) => {
             color: "primary",
             size: "34"
           }),
-          _cache[34] || (_cache[34] = _createElementVNode("div", null, [
+          _cache[38] || (_cache[38] = _createElementVNode("div", null, [
             _createElementVNode("h1", null, "智能刷流"),
             _createElementVNode("p", null, "看结论、处理异常，其余交给统一策略")
           ], -1))
@@ -1610,7 +1957,7 @@ return (_ctx, _cache) => {
           loading: loading.value,
           onClick: load
         }, {
-          default: _withCtx(() => [...(_cache[35] || (_cache[35] = [
+          default: _withCtx(() => [...(_cache[39] || (_cache[39] = [
             _createTextVNode("刷新", -1)
           ]))]),
           _: 1
@@ -1620,7 +1967,7 @@ return (_ctx, _cache) => {
           "prepend-icon": "mdi-tune",
           onClick: openSettings
         }, {
-          default: _withCtx(() => [...(_cache[36] || (_cache[36] = [
+          default: _withCtx(() => [...(_cache[40] || (_cache[40] = [
             _createTextVNode("工具与设置", -1)
           ]))]),
           _: 1
@@ -1631,7 +1978,7 @@ return (_ctx, _cache) => {
           "prepend-icon": "mdi-plus",
           onClick: createTask
         }, {
-          default: _withCtx(() => [...(_cache[37] || (_cache[37] = [
+          default: _withCtx(() => [...(_cache[41] || (_cache[41] = [
             _createTextVNode("新建任务", -1)
           ]))]),
           _: 1
@@ -1666,7 +2013,7 @@ return (_ctx, _cache) => {
           type: "warning",
           variant: "tonal"
         }, {
-          default: _withCtx(() => [...(_cache[38] || (_cache[38] = [
+          default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
             _createTextVNode("插件当前未启用；任务和历史可以查看，但不会自动运行。", -1)
           ]))]),
           _: 1
@@ -1684,13 +2031,13 @@ return (_ctx, _cache) => {
             icon: "mdi-radar",
             size: "52"
           }),
-          _cache[40] || (_cache[40] = _createElementVNode("h2", null, "还没有刷流任务", -1)),
-          _cache[41] || (_cache[41] = _createElementVNode("p", null, "四步完成站点、容量、选种和安全规则。", -1)),
+          _cache[44] || (_cache[44] = _createElementVNode("h2", null, "还没有刷流任务", -1)),
+          _cache[45] || (_cache[45] = _createElementVNode("p", null, "四步完成站点、容量、选种和安全规则。", -1)),
           _createVNode(_component_VBtn, {
             color: "primary",
             onClick: createTask
           }, {
-            default: _withCtx(() => [...(_cache[39] || (_cache[39] = [
+            default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
               _createTextVNode("创建第一个任务", -1)
             ]))]),
             _: 1
@@ -1708,43 +2055,47 @@ return (_ctx, _cache) => {
               _createVNode(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-radar",
+                disabled: !task.value||detailLoading.value||saving.value,
                 onClick: _cache[2] || (_cache[2] = $event => (topAction('run_selection','立即选种','将立即访问站点并可能添加符合条件的下载，确认继续吗？','选种任务已提交')))
               }, {
-                default: _withCtx(() => [...(_cache[42] || (_cache[42] = [
+                default: _withCtx(() => [...(_cache[46] || (_cache[46] = [
                   _createTextVNode("立即选种", -1)
                 ]))]),
                 _: 1
-              }),
+              }, 8, ["disabled"]),
               _createVNode(_component_VBtn, {
                 variant: "tonal",
                 "prepend-icon": "mdi-progress-check",
+                disabled: !task.value||detailLoading.value||saving.value,
                 onClick: _cache[3] || (_cache[3] = $event => (topAction('run_check','检查种子','将立即检查下载、上传和删种候选，确认继续吗？','种子检查已提交')))
               }, {
-                default: _withCtx(() => [...(_cache[43] || (_cache[43] = [
+                default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
                   _createTextVNode("检查种子", -1)
                 ]))]),
                 _: 1
-              }),
+              }, 8, ["disabled"]),
               _createVNode(_component_VBtn, {
                 variant: "text",
                 "prepend-icon": "mdi-pencil",
+                disabled: !task.value||detailLoading.value||saving.value,
                 onClick: editTask
               }, {
-                default: _withCtx(() => [...(_cache[44] || (_cache[44] = [
+                default: _withCtx(() => [...(_cache[48] || (_cache[48] = [
                   _createTextVNode("编辑任务", -1)
                 ]))]),
                 _: 1
-              }),
+              }, 8, ["disabled"]),
               _createVNode(_component_VBtn, {
                 variant: "text",
                 "prepend-icon": selected.value.enabled?'mdi-pause':'mdi-play',
+                disabled: !task.value||detailLoading.value||saving.value,
                 onClick: _cache[4] || (_cache[4] = $event => (topAction(selected.value.enabled?'pause_task':'resume_task',selected.value.enabled?'暂停任务':'恢复任务',selected.value.enabled?'暂停后将停止自动选种和检查，确认吗？':'恢复后将重新注册自动调度，确认吗？',selected.value.enabled?'任务已暂停':'任务已恢复')))
               }, {
                 default: _withCtx(() => [
                   _createTextVNode(_toDisplayString(selected.value.enabled?'暂停':'恢复'), 1)
                 ]),
                 _: 1
-              }, 8, ["prepend-icon"])
+              }, 8, ["prepend-icon", "disabled"])
             ])
           ]),
           (changeNotice.value)
@@ -1793,19 +2144,19 @@ return (_ctx, _cache) => {
           }, {
             default: _withCtx(() => [
               _createVNode(_component_VTab, { value: "status" }, {
-                default: _withCtx(() => [...(_cache[45] || (_cache[45] = [
+                default: _withCtx(() => [...(_cache[49] || (_cache[49] = [
                   _createTextVNode("状态", -1)
                 ]))]),
                 _: 1
               }),
               _createVNode(_component_VTab, { value: "torrents" }, {
-                default: _withCtx(() => [...(_cache[46] || (_cache[46] = [
+                default: _withCtx(() => [...(_cache[50] || (_cache[50] = [
                   _createTextVNode("种子", -1)
                 ]))]),
                 _: 1
               }),
               _createVNode(_component_VTab, { value: "history" }, {
-                default: _withCtx(() => [...(_cache[47] || (_cache[47] = [
+                default: _withCtx(() => [...(_cache[51] || (_cache[51] = [
                   _createTextVNode("记录", -1)
                 ]))]),
                 _: 1
@@ -1816,12 +2167,17 @@ return (_ctx, _cache) => {
           _createVNode(_component_VDivider),
           _createVNode(_component_VWindow, {
             modelValue: tab.value,
-            "onUpdate:modelValue": _cache[13] || (_cache[13] = $event => ((tab).value = $event)),
+            "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((tab).value = $event)),
             touch: false
           }, {
             default: _withCtx(() => [
               _createVNode(_component_VWindowItem, { value: "status" }, {
                 default: _withCtx(() => [
+                  _createVNode(TaskPerformance, {
+                    performance: summary.value.performance||{},
+                    loading: detailLoading.value&&!task.value,
+                    onInspect: _cache[7] || (_cache[7] = $event => (openInsight('income')))
+                  }, null, 8, ["performance", "loading"]),
                   _createElementVNode("section", {
                     class: _normalizeClass(["bf9__conclusion", `tone-${summary.value.health?.level||'info'}`])
                   }, [
@@ -1830,14 +2186,14 @@ return (_ctx, _cache) => {
                       size: "36"
                     }, null, 8, ["icon"]),
                     _createElementVNode("div", null, [
-                      _cache[48] || (_cache[48] = _createElementVNode("span", null, "当前结论", -1)),
+                      _cache[52] || (_cache[52] = _createElementVNode("span", null, "当前结论", -1)),
                       _createElementVNode("h2", null, _toDisplayString(summary.value.health?.title||'等待首次检查'), 1),
                       _createElementVNode("p", null, _toDisplayString(summary.value.health?.message||'插件完成第一次检查后会告诉你下一步。'), 1)
                     ])
                   ], 2),
                   (summary.value.recommended_actions?.length)
                     ? (_openBlock(), _createElementBlock("section", _hoisted_7, [
-                        _cache[49] || (_cache[49] = _createElementVNode("div", null, [
+                        _cache[53] || (_cache[53] = _createElementVNode("div", null, [
                           _createElementVNode("h3", null, "需要处理"),
                           _createElementVNode("p", null, "这些操作都会先说明影响，再由你确认。")
                         ], -1)),
@@ -1861,7 +2217,7 @@ return (_ctx, _cache) => {
                   _createElementVNode("section", _hoisted_8, [
                     _createElementVNode("header", null, [
                       _createElementVNode("div", null, [
-                        _cache[50] || (_cache[50] = _createElementVNode("h3", null, "容量", -1)),
+                        _cache[54] || (_cache[54] = _createElementVNode("h3", null, "容量", -1)),
                         _createElementVNode("p", null, _toDisplayString(_unref(formatBytes)(summary.value.capacity?.current_bytes||selected.value.seeding_size)) + " / " + _toDisplayString(summary.value.capacity?.limit_bytes?_unref(formatBytes)(summary.value.capacity.limit_bytes):'未设置上限'), 1)
                       ]),
                       _createElementVNode("strong", null, _toDisplayString(summary.value.capacity?.percent??0) + "%", 1)
@@ -1882,7 +2238,7 @@ return (_ctx, _cache) => {
                     _createElementVNode("div", _hoisted_10, [
                       _createElementVNode("span", null, "目标 " + _toDisplayString(strategy.value.capacity_target_percent||85) + "%", 1),
                       _createElementVNode("span", null, "开始清理 " + _toDisplayString(strategy.value.capacity_trigger_percent||90) + "%", 1),
-                      _cache[51] || (_cache[51] = _createElementVNode("span", null, "上限 100%", -1))
+                      _cache[55] || (_cache[55] = _createElementVNode("span", null, "上限 100%", -1))
                     ])
                   ]),
                   _createElementVNode("div", _hoisted_11, [
@@ -1890,21 +2246,23 @@ return (_ctx, _cache) => {
                       class: "panel bf9__drill-card",
                       role: "button",
                       tabindex: "0",
-                      onClick: _cache[7] || (_cache[7] = $event => (openInsight('selection'))),
-                      onKeydown: _cache[8] || (_cache[8] = _withKeys($event => (openInsight('selection')), ["enter"]))
+                      onClick: _cache[8] || (_cache[8] = $event => (openInsight('selection'))),
+                      onKeydown: _cache[9] || (_cache[9] = _withKeys($event => (openInsight('selection')), ["enter"]))
                     }, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-radar",
                         color: "primary"
                       }),
-                      _cache[53] || (_cache[53] = _createElementVNode("h3", null, "选种", -1)),
+                      _cache[57] || (_cache[57] = _createElementVNode("h3", null, "选种", -1)),
                       _createElementVNode("strong", null, "新增 " + _toDisplayString(summary.value.selection?.added_count||0) + " 个", 1),
-                      _createElementVNode("p", null, "本轮看到 " + _toDisplayString(summary.value.selection?.candidate_count||0) + " 个，过滤 " + _toDisplayString(summary.value.selection?.filtered_count||0) + " 个。", 1),
+                      (summary.value.selection?.source_checked)
+                        ? (_openBlock(), _createElementBlock("p", _hoisted_12, "本轮看到 " + _toDisplayString(summary.value.selection?.candidate_count||0) + " 个，过滤 " + _toDisplayString(summary.value.selection?.filtered_count||0) + " 个。", 1))
+                        : (_openBlock(), _createElementBlock("p", _hoisted_13, "本轮尚未进入站点选种，先处理当前限制。")),
                       (summary.value.selection?.main_reason)
-                        ? (_openBlock(), _createElementBlock("small", _hoisted_12, "主要原因：" + _toDisplayString(summary.value.selection.main_reason), 1))
+                        ? (_openBlock(), _createElementBlock("small", _hoisted_14, "主要原因：" + _toDisplayString(summary.value.selection.main_reason), 1))
                         : _createCommentVNode("", true),
-                      _createElementVNode("span", _hoisted_13, [
-                        _cache[52] || (_cache[52] = _createTextVNode("查看评分与未选原因 ", -1)),
+                      _createElementVNode("span", _hoisted_15, [
+                        _cache[56] || (_cache[56] = _createTextVNode("查看评分与未选原因 ", -1)),
                         _createVNode(_component_VIcon, {
                           icon: "mdi-chevron-right",
                           size: "16"
@@ -1915,19 +2273,19 @@ return (_ctx, _cache) => {
                       class: "panel bf9__drill-card",
                       role: "button",
                       tabindex: "0",
-                      onClick: _cache[9] || (_cache[9] = $event => (openInsight('deletion'))),
-                      onKeydown: _cache[10] || (_cache[10] = _withKeys($event => (openInsight('deletion')), ["enter"]))
+                      onClick: _cache[10] || (_cache[10] = $event => (openInsight('deletion'))),
+                      onKeydown: _cache[11] || (_cache[11] = _withKeys($event => (openInsight('deletion')), ["enter"]))
                     }, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-shield-check",
                         color: "warning"
                       }),
-                      _cache[55] || (_cache[55] = _createElementVNode("h3", null, "安全删种", -1)),
+                      _cache[59] || (_cache[59] = _createElementVNode("h3", null, "安全删种", -1)),
                       _createElementVNode("strong", null, _toDisplayString(summary.value.deletion?.candidate_count||0) + " 个候选", 1),
                       _createElementVNode("p", null, _toDisplayString(summary.value.deletion?.message||'暂无删种计划。'), 1),
                       _createElementVNode("small", null, "保护 " + _toDisplayString(summary.value.deletion?.protected_count||0) + " 个 / " + _toDisplayString(_unref(formatBytes)(summary.value.deletion?.protected_bytes||0)), 1),
-                      _createElementVNode("span", _hoisted_14, [
-                        _cache[54] || (_cache[54] = _createTextVNode("查看候选与保护原因 ", -1)),
+                      _createElementVNode("span", _hoisted_16, [
+                        _cache[58] || (_cache[58] = _createTextVNode("查看候选与保护原因 ", -1)),
                         _createVNode(_component_VIcon, {
                           icon: "mdi-chevron-right",
                           size: "16"
@@ -1938,19 +2296,19 @@ return (_ctx, _cache) => {
                       class: "panel bf9__drill-card",
                       role: "button",
                       tabindex: "0",
-                      onClick: _cache[11] || (_cache[11] = $event => (openInsight('download'))),
-                      onKeydown: _cache[12] || (_cache[12] = _withKeys($event => (openInsight('download')), ["enter"]))
+                      onClick: _cache[12] || (_cache[12] = $event => (openInsight('download'))),
+                      onKeydown: _cache[13] || (_cache[13] = _withKeys($event => (openInsight('download')), ["enter"]))
                     }, [
                       _createVNode(_component_VIcon, {
                         icon: "mdi-download-circle",
                         color: summary.value.download?.state==='healthy'?'success':'warning'
                       }, null, 8, ["color"]),
-                      _cache[57] || (_cache[57] = _createElementVNode("h3", null, "下载健康", -1)),
+                      _cache[61] || (_cache[61] = _createElementVNode("h3", null, "下载健康", -1)),
                       _createElementVNode("strong", null, _toDisplayString(summary.value.download?.state==='healthy'?'正常':'需要关注'), 1),
-                      _createElementVNode("p", null, "卡住 " + _toDisplayString(summary.value.download?.stalled_count||0) + " · 低速 " + _toDisplayString(summary.value.download?.slow_count||0) + " · 排队 " + _toDisplayString(summary.value.download?.queued_count||0) + " · 报错 " + _toDisplayString(summary.value.download?.error_count||0), 1),
-                      _cache[58] || (_cache[58] = _createElementVNode("small", null, "未完成数据绝不自动删除", -1)),
-                      _createElementVNode("span", _hoisted_15, [
-                        _cache[56] || (_cache[56] = _createTextVNode("查看下载状态 ", -1)),
+                      _createElementVNode("p", null, "超时 " + _toDisplayString(summary.value.download?.overdue_count||0) + " · 卡住 " + _toDisplayString(summary.value.download?.stalled_count||0) + " · 低速 " + _toDisplayString(summary.value.download?.slow_count||0) + " · 自动暂停 " + _toDisplayString(summary.value.download?.auto_paused_count||0), 1),
+                      _cache[62] || (_cache[62] = _createElementVNode("small", null, "未完成数据绝不自动删除", -1)),
+                      _createElementVNode("span", _hoisted_17, [
+                        _cache[60] || (_cache[60] = _createTextVNode("查看下载状态 ", -1)),
                         _createVNode(_component_VIcon, {
                           icon: "mdi-chevron-right",
                           size: "16"
@@ -1963,36 +2321,36 @@ return (_ctx, _cache) => {
                       _createVNode(_component_VExpansionPanel, null, {
                         default: _withCtx(() => [
                           _createVNode(_component_VExpansionPanelTitle, null, {
-                            default: _withCtx(() => [...(_cache[59] || (_cache[59] = [
+                            default: _withCtx(() => [...(_cache[63] || (_cache[63] = [
                               _createTextVNode("策略详情（专业信息）", -1)
                             ]))]),
                             _: 1
                           }),
                           _createVNode(_component_VExpansionPanelText, null, {
                             default: _withCtx(() => [
-                              _createElementVNode("div", _hoisted_16, [
+                              _createElementVNode("div", _hoisted_18, [
                                 _createElementVNode("div", null, [
-                                  _cache[60] || (_cache[60] = _createElementVNode("span", null, "策略预设", -1)),
+                                  _cache[64] || (_cache[64] = _createElementVNode("span", null, "策略预设", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(_unref(profileLabel)(task.value?.strategy?.profile)), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[61] || (_cache[61] = _createElementVNode("span", null, "安全观察（影子期）", -1)),
+                                  _cache[65] || (_cache[65] = _createElementVNode("span", null, "安全观察（影子期）", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(strategy.value.mode_label||'未启用'), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[62] || (_cache[62] = _createElementVNode("span", null, "学习置信度", -1)),
+                                  _cache[66] || (_cache[66] = _createElementVNode("span", null, "任务样本成熟度", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(Math.round((strategy.value.learning_confidence||0)*100)) + "%", 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[63] || (_cache[63] = _createElementVNode("span", null, "有效样本", -1)),
+                                  _cache[67] || (_cache[67] = _createElementVNode("span", null, "有效小时样本", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(strategy.value.learning_sample_count||0), 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[64] || (_cache[64] = _createElementVNode("span", null, "误判率", -1)),
+                                  _cache[68] || (_cache[68] = _createElementVNode("span", null, "误判率", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(((strategy.value.false_positive_rate||0)*100).toFixed(1)) + "%", 1)
                                 ]),
                                 _createElementVNode("div", null, [
-                                  _cache[65] || (_cache[65] = _createElementVNode("span", null, "单位容量收益", -1)),
+                                  _cache[69] || (_cache[69] = _createElementVNode("span", null, "单位容量收益", -1)),
                                   _createElementVNode("strong", null, _toDisplayString(((strategy.value.unit_capacity_yield_per_day||0)*100).toFixed(3)) + "%/天", 1)
                                 ])
                               ])
@@ -2010,84 +2368,25 @@ return (_ctx, _cache) => {
               }),
               _createVNode(_component_VWindowItem, { value: "torrents" }, {
                 default: _withCtx(() => [
-                  _createElementVNode("section", _hoisted_17, [
-                    _createElementVNode("header", _hoisted_18, [
-                      _createElementVNode("div", null, [
-                        _cache[66] || (_cache[66] = _createElementVNode("h3", null, "托管种子", -1)),
-                        _createElementVNode("p", null, "共 " + _toDisplayString(torrents.value.total) + " 个", 1)
-                      ]),
-                      _createVNode(_component_VBtnToggle, {
-                        "model-value": torrentState.value,
-                        mandatory: "",
-                        density: "compact",
-                        "onUpdate:modelValue": changeTorrentState
-                      }, {
-                        default: _withCtx(() => [
-                          _createVNode(_component_VBtn, { value: "active" }, {
-                            default: _withCtx(() => [...(_cache[67] || (_cache[67] = [
-                              _createTextVNode("活跃", -1)
-                            ]))]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VBtn, { value: "deleted" }, {
-                            default: _withCtx(() => [...(_cache[68] || (_cache[68] = [
-                              _createTextVNode("已删除", -1)
-                            ]))]),
-                            _: 1
-                          }),
-                          _createVNode(_component_VBtn, { value: "all" }, {
-                            default: _withCtx(() => [...(_cache[69] || (_cache[69] = [
-                              _createTextVNode("全部", -1)
-                            ]))]),
-                            _: 1
-                          })
-                        ]),
-                        _: 1
-                      }, 8, ["model-value"])
-                    ]),
-                    _createElementVNode("div", _hoisted_19, [
-                      (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(torrents.value.items, (item) => {
-                        return (_openBlock(), _createElementBlock("article", {
-                          key: item.hash||item.title
-                        }, [
-                          _createElementVNode("div", null, [
-                            _createElementVNode("strong", null, _toDisplayString(item.title||item.hash), 1),
-                            _createElementVNode("span", null, _toDisplayString(item.download_health_label|| (item.deleted?'已删除':'正常')), 1)
-                          ]),
-                          _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size||item.total_size)), 1),
-                          _createElementVNode("span", null, "上传 " + _toDisplayString(_unref(formatBytes)(item.uploaded)), 1),
-                          _createVNode(_component_VChip, {
-                            size: "x-small",
-                            variant: "tonal"
-                          }, {
-                            default: _withCtx(() => [
-                              _createTextVNode(_toDisplayString(Number(item.ratio||0).toFixed(2)), 1)
-                            ]),
-                            _: 2
-                          }, 1024)
-                        ]))
-                      }), 128)),
-                      (!torrents.value.items?.length)
-                        ? (_openBlock(), _createElementBlock("div", _hoisted_20, "暂无种子"))
-                        : _createCommentVNode("", true)
-                    ]),
-                    (torrents.value.total>torrents.value.page_size)
-                      ? (_openBlock(), _createBlock(_component_VPagination, {
-                          key: 0,
-                          "model-value": page.value,
-                          length: Math.ceil(torrents.value.total/torrents.value.page_size),
-                          "onUpdate:modelValue": changePage
-                        }, null, 8, ["model-value", "length"]))
-                      : _createCommentVNode("", true)
-                  ])
+                  _createVNode(TaskTorrentTable, {
+                    torrents: torrents.value,
+                    state: torrentState.value,
+                    sort: torrentSort.value,
+                    filter: torrentFilter.value,
+                    loading: detailLoading.value,
+                    onState: changeTorrentState,
+                    onSort: changeTorrentSort,
+                    onFilter: changeTorrentFilter,
+                    onPage: changePage
+                  }, null, 8, ["torrents", "state", "sort", "filter", "loading"])
                 ]),
                 _: 1
               }),
               _createVNode(_component_VWindowItem, { value: "history" }, {
                 default: _withCtx(() => [
-                  _createElementVNode("section", _hoisted_21, [
+                  _createElementVNode("section", _hoisted_19, [
                     _cache[70] || (_cache[70] = _createElementVNode("h3", null, "最近运行", -1)),
-                    _createElementVNode("div", _hoisted_22, [
+                    _createElementVNode("div", _hoisted_20, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(runs.value, (run) => {
                         return (_openBlock(), _createElementBlock("article", {
                           key: run.id
@@ -2100,16 +2399,16 @@ return (_ctx, _cache) => {
                             _createElementVNode("strong", null, _toDisplayString(run.kind==='brush'?'选种刷新':run.force_cleanup?'手动安全清理':'种子检查'), 1),
                             _createElementVNode("span", null, _toDisplayString(_unref(formatDateTime)(run.started_at)) + " · " + _toDisplayString(run.kind==='brush'?`新增 ${run.added_count||0}，过滤 ${run.filtered_count||0}`:`同步 ${run.managed_count ?? run.restored_count ?? 0}，活跃 ${run.active_count||0}，候选 ${run.deletion_candidate_count||0}，删除 ${run.deleted_count||0}${run.force_cleanup?`，释放 ${_unref(formatBytes)(run.freed_bytes||0)}`:''}`), 1),
                             (run.deletion_message)
-                              ? (_openBlock(), _createElementBlock("small", _hoisted_23, _toDisplayString(run.deletion_message), 1))
+                              ? (_openBlock(), _createElementBlock("small", _hoisted_21, _toDisplayString(run.deletion_message), 1))
                               : _createCommentVNode("", true),
                             (run.error)
-                              ? (_openBlock(), _createElementBlock("small", _hoisted_24, _toDisplayString(run.error), 1))
+                              ? (_openBlock(), _createElementBlock("small", _hoisted_22, _toDisplayString(run.error), 1))
                               : _createCommentVNode("", true)
                           ])
                         ]))
                       }), 128)),
                       (!runs.value.length)
-                        ? (_openBlock(), _createElementBlock("div", _hoisted_25, "暂无运行记录"))
+                        ? (_openBlock(), _createElementBlock("div", _hoisted_23, "暂无运行记录"))
                         : _createCommentVNode("", true)
                     ])
                   ])
@@ -2123,7 +2422,7 @@ return (_ctx, _cache) => {
       : _createCommentVNode("", true),
     _createVNode(TaskWizardV9, {
       modelValue: wizard.value,
-      "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((wizard).value = $event)),
+      "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((wizard).value = $event)),
       task: wizardTask.value,
       sites: status.value.options.sites,
       downloaders: status.value.options.downloaders,
@@ -2134,7 +2433,7 @@ return (_ctx, _cache) => {
     }, null, 8, ["modelValue", "task", "sites", "downloaders", "api", "plugin-base", "saving"]),
     _createVNode(_component_VDialog, {
       modelValue: insightOpen.value,
-      "onUpdate:modelValue": _cache[17] || (_cache[17] = $event => ((insightOpen).value = $event)),
+      "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((insightOpen).value = $event)),
       "max-width": "58rem",
       scrollable: ""
     }, {
@@ -2149,130 +2448,205 @@ return (_ctx, _cache) => {
             }),
             _createVNode(_component_VCardText, null, {
               default: _withCtx(() => [
-                (insightKind.value==='selection')
+                (insightKind.value==='income')
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                      _cache[71] || (_cache[71] = _createElementVNode("p", { class: "mb-3" }, "最近一次选种评分及结果，分数越高越优先。", -1)),
-                      _createElementVNode("div", _hoisted_26, [
-                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(selectionDetails.value, (item) => {
+                      _createElementVNode("div", _hoisted_24, [
+                        _cache[72] || (_cache[72] = _createElementVNode("p", null, "这些种子已达到最低保种时长，完整 24 小时没有上传。清理仍会复核 H&R、连接和连续确认。", -1)),
+                        _createVNode(_component_VBtn, {
+                          variant: "tonal",
+                          onClick: openZeroUploadList
+                        }, {
+                          default: _withCtx(() => [...(_cache[71] || (_cache[71] = [
+                            _createTextVNode("查看全部零上传种子", -1)
+                          ]))]),
+                          _: 1
+                        })
+                      ]),
+                      _createElementVNode("div", _hoisted_25, [
+                        (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(summary.value.performance?.low_yield_items||[], (item) => {
                           return (_openBlock(), _createElementBlock("article", {
-                            key: item.title
+                            key: item.hash
                           }, [
                             _createElementVNode("div", null, [
-                              _createElementVNode("strong", null, _toDisplayString(item.title||'未知候选'), 1),
-                              _createElementVNode("small", null, _toDisplayString(reasonText(item.reasons)), 1)
+                              _createElementVNode("strong", null, _toDisplayString(item.title||item.hash), 1),
+                              _createElementVNode("small", null, "已保种 " + _toDisplayString(item.seeding_hours) + " 小时 · " + _toDisplayString(reasonText(item.reasons)), 1)
                             ]),
-                            _createVNode(_component_VChip, {
-                              color: item.selected?'success':'default',
-                              size: "small",
-                              variant: "tonal"
-                            }, {
-                              default: _withCtx(() => [
-                                _createTextVNode(_toDisplayString(Number(item.score||0).toFixed(1)) + " 分 · " + _toDisplayString(item.selected?'已选':'未选'), 1)
-                              ]),
-                              _: 2
-                            }, 1032, ["color"])
+                            _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size)), 1)
                           ]))
                         }), 128)),
-                        (!selectionDetails.value.length)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_27, "最近没有可展示的站点候选，下一次看到候选后会记录评分。"))
+                        (!summary.value.performance?.low_yield_items?.length)
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_26, "暂无符合完整观测条件的零上传种子。"))
                           : _createCommentVNode("", true)
                       ])
                     ], 64))
-                  : (insightKind.value==='deletion')
+                  : (insightKind.value==='selection')
                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                        _createElementVNode("div", _hoisted_28, [
-                          _cache[72] || (_cache[72] = _createElementVNode("p", null, "候选仍会在真正删除前重新经过全部硬安全线。", -1)),
-                          (deletionDetails.value.length)
-                            ? (_openBlock(), _createBlock(_component_VBtn, {
-                                key: 0,
-                                color: "error",
-                                variant: "tonal",
-                                "prepend-icon": "mdi-delete-sweep",
-                                loading: cleanupActive.value,
-                                disabled: cleanupActive.value,
-                                onClick: _cache[15] || (_cache[15] = $event => {insightOpen.value=false;askForceCleanup();})
+                        _cache[73] || (_cache[73] = _createElementVNode("p", { class: "mb-3" }, "最近一次选种评分及结果，分数越高越优先。", -1)),
+                        _createElementVNode("div", _hoisted_27, [
+                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(selectionDetails.value, (item) => {
+                            return (_openBlock(), _createElementBlock("article", {
+                              key: item.title
+                            }, [
+                              _createElementVNode("div", null, [
+                                _createElementVNode("strong", null, _toDisplayString(item.title||'未知候选'), 1),
+                                _createElementVNode("small", null, _toDisplayString(reasonText(item.reasons)), 1)
+                              ]),
+                              _createVNode(_component_VChip, {
+                                color: item.selected?'success':'default',
+                                size: "small",
+                                variant: "tonal"
                               }, {
                                 default: _withCtx(() => [
-                                  _createTextVNode(_toDisplayString(cleanupActive.value?'正在安全清理':'手动安全清理'), 1)
+                                  _createTextVNode(_toDisplayString(Number(item.score||0).toFixed(1)) + " 分 · " + _toDisplayString(item.selected?'已选':'未选'), 1)
+                                ]),
+                                _: 2
+                              }, 1032, ["color"])
+                            ]))
+                          }), 128)),
+                          (!selectionDetails.value.length)
+                            ? (_openBlock(), _createElementBlock("div", _hoisted_28, "最近没有可展示的站点候选，下一次看到候选后会记录评分。"))
+                            : _createCommentVNode("", true)
+                        ])
+                      ], 64))
+                    : (insightKind.value==='deletion')
+                      ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
+                          _createElementVNode("div", _hoisted_29, [
+                            _cache[74] || (_cache[74] = _createElementVNode("p", null, "候选仍会在真正删除前重新经过全部硬安全线。", -1)),
+                            (deletionDetails.value.length)
+                              ? (_openBlock(), _createBlock(_component_VBtn, {
+                                  key: 0,
+                                  color: "error",
+                                  variant: "tonal",
+                                  "prepend-icon": "mdi-delete-sweep",
+                                  loading: cleanupActive.value,
+                                  disabled: cleanupActive.value,
+                                  onClick: _cache[16] || (_cache[16] = $event => {insightOpen.value=false;askForceCleanup();})
+                                }, {
+                                  default: _withCtx(() => [
+                                    _createTextVNode(_toDisplayString(cleanupActive.value?'正在安全清理':'手动安全清理'), 1)
+                                  ]),
+                                  _: 1
+                                }, 8, ["loading", "disabled"]))
+                              : _createCommentVNode("", true)
+                          ]),
+                          (cleanupProgress.value)
+                            ? (_openBlock(), _createBlock(_component_VAlert, {
+                                key: 0,
+                                type: cleanupProgress.value.state==='failed'?'error':cleanupProgress.value.state==='completed'?'success':'warning',
+                                variant: "tonal",
+                                density: "compact",
+                                class: "mt-4"
+                              }, {
+                                default: _withCtx(() => [
+                                  _createTextVNode(_toDisplayString(cleanupProgress.value.phase) + " · 已删 " + _toDisplayString(cleanupProgress.value.deleted_count||0) + " 个 · 释放 " + _toDisplayString(_unref(formatBytes)(cleanupProgress.value.freed_bytes||0)), 1)
                                 ]),
                                 _: 1
-                              }, 8, ["loading", "disabled"]))
-                            : _createCommentVNode("", true)
-                        ]),
-                        (cleanupProgress.value)
-                          ? (_openBlock(), _createBlock(_component_VAlert, {
-                              key: 0,
-                              type: cleanupProgress.value.state==='failed'?'error':cleanupProgress.value.state==='completed'?'success':'warning',
-                              variant: "tonal",
-                              density: "compact",
-                              class: "mt-4"
-                            }, {
-                              default: _withCtx(() => [
-                                _createTextVNode(_toDisplayString(cleanupProgress.value.phase) + " · 已删 " + _toDisplayString(cleanupProgress.value.deleted_count||0) + " 个 · 释放 " + _toDisplayString(_unref(formatBytes)(cleanupProgress.value.freed_bytes||0)), 1)
-                              ]),
-                              _: 1
-                            }, 8, ["type"]))
-                          : _createCommentVNode("", true),
-                        _createElementVNode("div", _hoisted_29, [
-                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(deletionDetails.value, (item) => {
-                            return (_openBlock(), _createElementBlock("article", {
-                              key: item.hash
-                            }, [
-                              _createElementVNode("div", null, [
-                                _createElementVNode("strong", null, _toDisplayString(item.title||item.hash), 1),
-                                _createElementVNode("small", null, _toDisplayString(item.recovered?'候选恢复上传或需求，已判为误判并保护':'低价值候选，等待额度与最终复核'), 1)
-                              ]),
-                              _createElementVNode("div", _hoisted_30, [
-                                _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size||0)), 1),
-                                _createVNode(_component_VChip, {
-                                  size: "small",
-                                  color: item.recovered?'success':'warning',
-                                  variant: "tonal"
-                                }, {
-                                  default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(Number(item.score||0).toFixed(1)) + " 分", 1)
-                                  ]),
-                                  _: 2
-                                }, 1032, ["color"])
-                              ])
-                            ]))
-                          }), 128)),
-                          (!deletionDetails.value.length)
-                            ? (_openBlock(), _createElementBlock("div", _hoisted_31, "当前没有进入观察记录的删种候选。"))
-                            : _createCommentVNode("", true)
-                        ])
-                      ], 64))
-                    : (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
-                        _cache[73] || (_cache[73] = _createElementVNode("p", { class: "mb-3" }, "仅列出需要关注的下载；未完成数据不会自动删除。", -1)),
-                        _createElementVNode("div", _hoisted_32, [
-                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(downloadDetails.value, (item) => {
-                            return (_openBlock(), _createElementBlock("article", {
-                              key: item.hash
-                            }, [
-                              _createElementVNode("div", null, [
-                                _createElementVNode("strong", null, _toDisplayString(item.title), 1),
-                                _createElementVNode("small", null, _toDisplayString(item.reason||item.label), 1)
-                              ]),
-                              _createElementVNode("div", _hoisted_33, [
-                                _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size||0)), 1),
-                                _createVNode(_component_VChip, {
-                                  size: "small",
-                                  color: "warning",
-                                  variant: "tonal"
-                                }, {
-                                  default: _withCtx(() => [
-                                    _createTextVNode(_toDisplayString(item.label), 1)
-                                  ]),
-                                  _: 2
-                                }, 1024)
-                              ])
-                            ]))
-                          }), 128)),
-                          (!downloadDetails.value.length)
-                            ? (_openBlock(), _createElementBlock("div", _hoisted_34, "当前没有卡住、低速、排队或报错的下载。"))
-                            : _createCommentVNode("", true)
-                        ])
-                      ], 64))
+                              }, 8, ["type"]))
+                            : _createCommentVNode("", true),
+                          _createElementVNode("div", _hoisted_30, [
+                            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(deletionDetails.value, (item) => {
+                              return (_openBlock(), _createElementBlock("article", {
+                                key: item.hash
+                              }, [
+                                _createElementVNode("div", null, [
+                                  _createElementVNode("strong", null, _toDisplayString(item.title||item.hash), 1),
+                                  _createElementVNode("small", null, _toDisplayString(item.recovered?'候选恢复上传或需求，已判为误判并保护':'低价值候选，等待额度与最终复核'), 1)
+                                ]),
+                                _createElementVNode("div", _hoisted_31, [
+                                  _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size||0)), 1),
+                                  _createVNode(_component_VChip, {
+                                    size: "small",
+                                    color: item.recovered?'success':'warning',
+                                    variant: "tonal"
+                                  }, {
+                                    default: _withCtx(() => [
+                                      _createTextVNode(_toDisplayString(Number(item.score||0).toFixed(1)) + " 分", 1)
+                                    ]),
+                                    _: 2
+                                  }, 1032, ["color"])
+                                ])
+                              ]))
+                            }), 128)),
+                            (!deletionDetails.value.length)
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_32, "当前没有进入观察记录的删种候选。"))
+                              : _createCommentVNode("", true)
+                          ])
+                        ], 64))
+                      : (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
+                          _cache[77] || (_cache[77] = _createElementVNode("p", { class: "mb-3" }, "仅列出需要关注的下载；未完成数据不会自动删除。卡住或低速的种子可单独手动移除。", -1)),
+                          _createElementVNode("div", _hoisted_33, [
+                            (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(downloadDetails.value, (item) => {
+                              return (_openBlock(), _createElementBlock("article", {
+                                key: item.hash
+                              }, [
+                                _createElementVNode("div", null, [
+                                  _createElementVNode("strong", null, _toDisplayString(item.title), 1),
+                                  _createElementVNode("small", null, _toDisplayString(downloadReason(item)), 1),
+                                  (item.age_hours!==null&&item.age_hours!==undefined)
+                                    ? (_openBlock(), _createElementBlock("small", _hoisted_34, [
+                                        _createTextVNode("已下载 " + _toDisplayString(Number(item.age_hours||0).toFixed(1)) + " 小时", 1),
+                                        (item.overdue)
+                                          ? (_openBlock(), _createElementBlock("span", _hoisted_35, " · 超过设定时限"))
+                                          : _createCommentVNode("", true),
+                                        (item.eta_hours)
+                                          ? (_openBlock(), _createElementBlock("span", _hoisted_36, " · 预计还需 " + _toDisplayString(Number(item.eta_hours).toFixed(1)) + " 小时", 1))
+                                          : _createCommentVNode("", true)
+                                      ]))
+                                    : _createCommentVNode("", true),
+                                  (item.action_error)
+                                    ? (_openBlock(), _createElementBlock("small", _hoisted_37, "处理提示：" + _toDisplayString(item.action_error), 1))
+                                    : _createCommentVNode("", true)
+                                ]),
+                                _createElementVNode("div", _hoisted_38, [
+                                  _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(item.size||0)), 1),
+                                  _createVNode(_component_VChip, {
+                                    size: "small",
+                                    color: "warning",
+                                    variant: "tonal"
+                                  }, {
+                                    default: _withCtx(() => [
+                                      _createTextVNode(_toDisplayString(item.overdue?'下载超时':item.label), 1)
+                                    ]),
+                                    _: 2
+                                  }, 1024)
+                                ]),
+                                _createElementVNode("div", _hoisted_39, [
+                                  (item.delete_pending)
+                                    ? (_openBlock(), _createBlock(_component_VChip, {
+                                        key: 0,
+                                        size: "small",
+                                        color: "info",
+                                        variant: "tonal"
+                                      }, {
+                                        default: _withCtx(() => [...(_cache[75] || (_cache[75] = [
+                                          _createTextVNode("移除结果核对中", -1)
+                                        ]))]),
+                                        _: 1
+                                      }))
+                                    : (['stalled','slow'].includes(item.state)||(item.state==='paused'&&item.auto_paused))
+                                      ? (_openBlock(), _createBlock(_component_VBtn, {
+                                          key: 1,
+                                          size: "small",
+                                          color: "error",
+                                          variant: "tonal",
+                                          "prepend-icon": "mdi-delete-outline",
+                                          disabled: saving.value,
+                                          onClick: $event => (askDeleteUnhealthyDownload(item))
+                                        }, {
+                                          default: _withCtx(() => [...(_cache[76] || (_cache[76] = [
+                                            _createTextVNode("删除", -1)
+                                          ]))]),
+                                          _: 1
+                                        }, 8, ["disabled", "onClick"]))
+                                      : _createCommentVNode("", true)
+                                ])
+                              ]))
+                            }), 128)),
+                            (!downloadDetails.value.length)
+                              ? (_openBlock(), _createElementBlock("div", _hoisted_40, "当前没有卡住、低速、排队或报错的下载。"))
+                              : _createCommentVNode("", true)
+                          ])
+                        ], 64))
               ]),
               _: 1
             }),
@@ -2281,9 +2655,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[16] || (_cache[16] = $event => (insightOpen.value=false))
+                  onClick: _cache[17] || (_cache[17] = $event => (insightOpen.value=false))
                 }, {
-                  default: _withCtx(() => [...(_cache[74] || (_cache[74] = [
+                  default: _withCtx(() => [...(_cache[78] || (_cache[78] = [
                     _createTextVNode("关闭", -1)
                   ]))]),
                   _: 1
@@ -2299,7 +2673,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue"]),
     _createVNode(_component_VDialog, {
       modelValue: settingsOpen.value,
-      "onUpdate:modelValue": _cache[29] || (_cache[29] = $event => ((settingsOpen).value = $event)),
+      "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((settingsOpen).value = $event)),
       "max-width": "46rem",
       scrollable: ""
     }, {
@@ -2312,33 +2686,33 @@ return (_ctx, _cache) => {
                   icon: "mdi-tune",
                   class: "mr-2"
                 }),
-                _cache[75] || (_cache[75] = _createTextVNode("工具与设置", -1))
+                _cache[79] || (_cache[79] = _createTextVNode("工具与设置", -1))
               ]),
               _: 1
             }),
             _createVNode(_component_VCardText, { class: "bf9__settings" }, {
               default: _withCtx(() => [
                 _createElementVNode("section", null, [
-                  _cache[76] || (_cache[76] = _createElementVNode("h3", null, "插件运行", -1)),
-                  _cache[77] || (_cache[77] = _createElementVNode("p", null, "这里只管理插件总开关和全局硬上限；每个任务仍独立管理自己的容量。", -1)),
+                  _cache[80] || (_cache[80] = _createElementVNode("h3", null, "插件运行", -1)),
+                  _cache[81] || (_cache[81] = _createElementVNode("p", null, "这里只管理插件总开关和全局硬上限；每个任务仍独立管理自己的容量。", -1)),
                   _createVNode(_component_VSwitch, {
                     modelValue: settingsDraft.value.enabled,
-                    "onUpdate:modelValue": _cache[18] || (_cache[18] = $event => ((settingsDraft.value.enabled) = $event)),
+                    "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((settingsDraft.value.enabled) = $event)),
                     label: "启用智能刷流",
                     color: "primary",
                     "hide-details": ""
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
                     modelValue: settingsDraft.value.show_sidebar_nav,
-                    "onUpdate:modelValue": _cache[19] || (_cache[19] = $event => ((settingsDraft.value.show_sidebar_nav) = $event)),
+                    "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((settingsDraft.value.show_sidebar_nav) = $event)),
                     label: "显示侧边栏入口",
                     color: "primary",
                     "hide-details": ""
                   }, null, 8, ["modelValue"]),
-                  _createElementVNode("div", _hoisted_35, [
+                  _createElementVNode("div", _hoisted_41, [
                     _createVNode(_component_VTextField, {
                       modelValue: settingsDraft.value.global_disksize,
-                      "onUpdate:modelValue": _cache[20] || (_cache[20] = $event => ((settingsDraft.value.global_disksize) = $event)),
+                      "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((settingsDraft.value.global_disksize) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       min: "1",
@@ -2349,7 +2723,7 @@ return (_ctx, _cache) => {
                     }, null, 8, ["modelValue"]),
                     _createVNode(_component_VTextField, {
                       modelValue: settingsDraft.value.global_maxdlcount,
-                      "onUpdate:modelValue": _cache[21] || (_cache[21] = $event => ((settingsDraft.value.global_maxdlcount) = $event)),
+                      "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((settingsDraft.value.global_maxdlcount) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       min: "1",
@@ -2358,7 +2732,7 @@ return (_ctx, _cache) => {
                     }, null, 8, ["modelValue"]),
                     _createVNode(_component_VTextField, {
                       modelValue: settingsDraft.value.global_maxupspeed,
-                      "onUpdate:modelValue": _cache[22] || (_cache[22] = $event => ((settingsDraft.value.global_maxupspeed) = $event)),
+                      "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((settingsDraft.value.global_maxupspeed) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       min: "1",
@@ -2367,7 +2741,7 @@ return (_ctx, _cache) => {
                     }, null, 8, ["modelValue"]),
                     _createVNode(_component_VTextField, {
                       modelValue: settingsDraft.value.global_maxdlspeed,
-                      "onUpdate:modelValue": _cache[23] || (_cache[23] = $event => ((settingsDraft.value.global_maxdlspeed) = $event)),
+                      "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((settingsDraft.value.global_maxdlspeed) = $event)),
                       modelModifiers: { number: true },
                       type: "number",
                       min: "1",
@@ -2378,8 +2752,8 @@ return (_ctx, _cache) => {
                 ]),
                 _createVNode(_component_VDivider),
                 _createElementVNode("section", null, [
-                  _createElementVNode("div", _hoisted_36, [
-                    _cache[79] || (_cache[79] = _createElementVNode("div", null, [
+                  _createElementVNode("div", _hoisted_42, [
+                    _cache[83] || (_cache[83] = _createElementVNode("div", null, [
                       _createElementVNode("h3", null, "站点签到"),
                       _createElementVNode("p", null, "签到是独立工具，不参与选种、下载健康或删种决策。")
                     ], -1)),
@@ -2389,7 +2763,7 @@ return (_ctx, _cache) => {
                       loading: saving.value,
                       onClick: runSignin
                     }, {
-                      default: _withCtx(() => [...(_cache[78] || (_cache[78] = [
+                      default: _withCtx(() => [...(_cache[82] || (_cache[82] = [
                         _createTextVNode("立即签到", -1)
                       ]))]),
                       _: 1
@@ -2397,28 +2771,28 @@ return (_ctx, _cache) => {
                   ]),
                   _createVNode(_component_VSwitch, {
                     modelValue: settingsDraft.value.signin_enabled,
-                    "onUpdate:modelValue": _cache[24] || (_cache[24] = $event => ((settingsDraft.value.signin_enabled) = $event)),
+                    "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((settingsDraft.value.signin_enabled) = $event)),
                     label: "启用自动签到",
                     color: "primary",
                     "hide-details": ""
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSwitch, {
                     modelValue: settingsDraft.value.signin_notify,
-                    "onUpdate:modelValue": _cache[25] || (_cache[25] = $event => ((settingsDraft.value.signin_notify) = $event)),
+                    "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((settingsDraft.value.signin_notify) = $event)),
                     label: "发送签到结果通知",
                     color: "primary",
                     "hide-details": ""
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VTextField, {
                     modelValue: settingsDraft.value.signin_cron,
-                    "onUpdate:modelValue": _cache[26] || (_cache[26] = $event => ((settingsDraft.value.signin_cron) = $event)),
+                    "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((settingsDraft.value.signin_cron) = $event)),
                     label: "签到 CRON",
                     hint: "默认每天 07:17：17 7 * * *",
                     "persistent-hint": ""
                   }, null, 8, ["modelValue"]),
                   _createVNode(_component_VSelect, {
                     modelValue: settingsDraft.value.signin_sites,
-                    "onUpdate:modelValue": _cache[27] || (_cache[27] = $event => ((settingsDraft.value.signin_sites) = $event)),
+                    "onUpdate:modelValue": _cache[28] || (_cache[28] = $event => ((settingsDraft.value.signin_sites) = $event)),
                     items: status.value.options.sites,
                     multiple: "",
                     chips: "",
@@ -2449,9 +2823,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[28] || (_cache[28] = $event => (settingsOpen.value=false))
+                  onClick: _cache[29] || (_cache[29] = $event => (settingsOpen.value=false))
                 }, {
-                  default: _withCtx(() => [...(_cache[80] || (_cache[80] = [
+                  default: _withCtx(() => [...(_cache[84] || (_cache[84] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2462,7 +2836,7 @@ return (_ctx, _cache) => {
                   loading: saving.value,
                   onClick: saveSettings
                 }, {
-                  default: _withCtx(() => [...(_cache[81] || (_cache[81] = [
+                  default: _withCtx(() => [...(_cache[85] || (_cache[85] = [
                     _createTextVNode("保存设置", -1)
                   ]))]),
                   _: 1
@@ -2478,7 +2852,7 @@ return (_ctx, _cache) => {
     }, 8, ["modelValue"]),
     _createVNode(_component_VDialog, {
       modelValue: cleanupPreviewOpen.value,
-      "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((cleanupPreviewOpen).value = $event)),
+      "onUpdate:modelValue": _cache[32] || (_cache[32] = $event => ((cleanupPreviewOpen).value = $event)),
       "max-width": "48rem",
       scrollable: ""
     }, {
@@ -2486,25 +2860,25 @@ return (_ctx, _cache) => {
         _createVNode(_component_VCard, null, {
           default: _withCtx(() => [
             _createVNode(_component_VCardTitle, null, {
-              default: _withCtx(() => [...(_cache[82] || (_cache[82] = [
+              default: _withCtx(() => [...(_cache[86] || (_cache[86] = [
                 _createTextVNode("清理预览（不会立即删除）", -1)
               ]))]),
               _: 1
             }),
             _createVNode(_component_VCardText, null, {
               default: _withCtx(() => [
-                _cache[86] || (_cache[86] = _createElementVNode("p", null, "以下名单来自本次只读评估，确认后还会再次执行全部硬安全线。", -1)),
-                _createElementVNode("div", _hoisted_37, [
+                _cache[90] || (_cache[90] = _createElementVNode("p", null, "以下名单来自本次只读评估，确认后还会再次执行全部硬安全线。", -1)),
+                _createElementVNode("div", _hoisted_43, [
                   _createElementVNode("div", null, [
-                    _cache[83] || (_cache[83] = _createElementVNode("span", null, "候选", -1)),
+                    _cache[87] || (_cache[87] = _createElementVNode("span", null, "候选", -1)),
                     _createElementVNode("strong", null, _toDisplayString(cleanupPreview.value?.items?.length||0) + " 个", 1)
                   ]),
                   _createElementVNode("div", null, [
-                    _cache[84] || (_cache[84] = _createElementVNode("span", null, "预计移除任务体积", -1)),
+                    _cache[88] || (_cache[88] = _createElementVNode("span", null, "预计移除任务体积", -1)),
                     _createElementVNode("strong", null, _toDisplayString(_unref(formatBytes)(cleanupPreview.value?.expected_task_bytes_removed||0)), 1)
                   ]),
                   _createElementVNode("div", null, [
-                    _cache[85] || (_cache[85] = _createElementVNode("span", null, "预计释放数据", -1)),
+                    _cache[89] || (_cache[89] = _createElementVNode("span", null, "预计释放数据", -1)),
                     _createElementVNode("strong", null, _toDisplayString(_unref(formatBytes)(cleanupPreview.value?.estimated_released_bytes||0)), 1)
                   ])
                 ]),
@@ -2519,7 +2893,7 @@ return (_ctx, _cache) => {
                       ]),
                       _: 1
                     }))
-                  : (_openBlock(), _createElementBlock("div", _hoisted_38, [
+                  : (_openBlock(), _createElementBlock("div", _hoisted_44, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(cleanupPreview.value.items, (item) => {
                         return (_openBlock(), _createElementBlock("div", {
                           key: item.hash
@@ -2537,9 +2911,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[30] || (_cache[30] = $event => (cleanupPreviewOpen.value=false))
+                  onClick: _cache[31] || (_cache[31] = $event => (cleanupPreviewOpen.value=false))
                 }, {
-                  default: _withCtx(() => [...(_cache[87] || (_cache[87] = [
+                  default: _withCtx(() => [...(_cache[91] || (_cache[91] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2550,7 +2924,7 @@ return (_ctx, _cache) => {
                   disabled: !cleanupPreview.value?.allowed,
                   onClick: confirmCleanupPreview
                 }, {
-                  default: _withCtx(() => [...(_cache[88] || (_cache[88] = [
+                  default: _withCtx(() => [...(_cache[92] || (_cache[92] = [
                     _createTextVNode("确认名单并继续", -1)
                   ]))]),
                   _: 1
@@ -2565,8 +2939,88 @@ return (_ctx, _cache) => {
       _: 1
     }, 8, ["modelValue"]),
     _createVNode(_component_VDialog, {
+      modelValue: deleteConfirmOpen.value,
+      "onUpdate:modelValue": _cache[35] || (_cache[35] = $event => ((deleteConfirmOpen).value = $event)),
+      "max-width": "38rem"
+    }, {
+      default: _withCtx(() => [
+        _createVNode(_component_VCard, null, {
+          default: _withCtx(() => [
+            _createVNode(_component_VCardTitle, null, {
+              default: _withCtx(() => [...(_cache[93] || (_cache[93] = [
+                _createTextVNode("确认移除下载", -1)
+              ]))]),
+              _: 1
+            }),
+            _createVNode(_component_VCardText, null, {
+              default: _withCtx(() => [
+                _cache[95] || (_cache[95] = _createElementVNode("p", null, "将重新检查下载器中的进度。若种子已完成、卡住恢复推进或低速恢复正常，操作会被取消。", -1)),
+                _createElementVNode("div", _hoisted_45, [
+                  _createElementVNode("strong", null, _toDisplayString(deleteTarget.value?.title), 1),
+                  _createElementVNode("span", null, _toDisplayString(_unref(formatBytes)(deleteTarget.value?.size||0)) + " · " + _toDisplayString(deleteTarget.value?.label), 1)
+                ]),
+                _createVNode(_component_VCheckbox, {
+                  modelValue: deleteData.value,
+                  "onUpdate:modelValue": _cache[33] || (_cache[33] = $event => ((deleteData).value = $event)),
+                  color: "error",
+                  label: "同时删除本地下载数据",
+                  hint: "默认仅移除下载器任务并保留文件；勾选后文件也会删除。",
+                  "persistent-hint": "",
+                  "hide-details": "auto"
+                }, null, 8, ["modelValue"]),
+                (deleteData.value)
+                  ? (_openBlock(), _createBlock(_component_VAlert, {
+                      key: 0,
+                      class: "mt-4",
+                      type: "warning",
+                      variant: "tonal",
+                      density: "compact"
+                    }, {
+                      default: _withCtx(() => [...(_cache[94] || (_cache[94] = [
+                        _createTextVNode("这会删除未完成的数据文件，通常无法恢复。请确认该下载确实不需要。", -1)
+                      ]))]),
+                      _: 1
+                    }))
+                  : _createCommentVNode("", true)
+              ]),
+              _: 1
+            }),
+            _createVNode(_component_VCardActions, null, {
+              default: _withCtx(() => [
+                _createVNode(_component_VSpacer),
+                _createVNode(_component_VBtn, {
+                  variant: "text",
+                  disabled: saving.value,
+                  onClick: _cache[34] || (_cache[34] = $event => (deleteConfirmOpen.value=false))
+                }, {
+                  default: _withCtx(() => [...(_cache[96] || (_cache[96] = [
+                    _createTextVNode("取消", -1)
+                  ]))]),
+                  _: 1
+                }, 8, ["disabled"]),
+                _createVNode(_component_VBtn, {
+                  color: "error",
+                  variant: "flat",
+                  loading: saving.value,
+                  onClick: confirmDeleteUnhealthyDownload
+                }, {
+                  default: _withCtx(() => [...(_cache[97] || (_cache[97] = [
+                    _createTextVNode("确认删除", -1)
+                  ]))]),
+                  _: 1
+                }, 8, ["loading"])
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }, 8, ["modelValue"]),
+    _createVNode(_component_VDialog, {
       modelValue: confirmOpen.value,
-      "onUpdate:modelValue": _cache[33] || (_cache[33] = $event => ((confirmOpen).value = $event)),
+      "onUpdate:modelValue": _cache[37] || (_cache[37] = $event => ((confirmOpen).value = $event)),
       "max-width": "30rem"
     }, {
       default: _withCtx(() => [
@@ -2589,9 +3043,9 @@ return (_ctx, _cache) => {
                 _createVNode(_component_VSpacer),
                 _createVNode(_component_VBtn, {
                   variant: "text",
-                  onClick: _cache[32] || (_cache[32] = $event => (confirmOpen.value=false))
+                  onClick: _cache[36] || (_cache[36] = $event => (confirmOpen.value=false))
                 }, {
-                  default: _withCtx(() => [...(_cache[89] || (_cache[89] = [
+                  default: _withCtx(() => [...(_cache[98] || (_cache[98] = [
                     _createTextVNode("取消", -1)
                   ]))]),
                   _: 1
@@ -2602,7 +3056,7 @@ return (_ctx, _cache) => {
                   loading: saving.value,
                   onClick: executeAction
                 }, {
-                  default: _withCtx(() => [...(_cache[90] || (_cache[90] = [
+                  default: _withCtx(() => [...(_cache[99] || (_cache[99] = [
                     _createTextVNode("确认执行", -1)
                   ]))]),
                   _: 1
@@ -2621,6 +3075,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SmartBrushFlow = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1fe4fc7b"]]);
+const SmartBrushFlow = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-782614d9"]]);
 
 export { SmartBrushFlow as S };

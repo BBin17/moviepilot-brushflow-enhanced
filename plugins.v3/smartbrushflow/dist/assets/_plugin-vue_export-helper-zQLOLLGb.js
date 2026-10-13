@@ -46,6 +46,14 @@ function taskStateMeta(state) {
   return states[state] || states.running
 }
 
+/** 根据已下载量和总大小计算种子完成百分比。 */
+function torrentProgress(item) {
+  const size = Number(item?.size || 0);
+  if (!size) return 0
+  const completed = item?.download_completed_bytes ?? item?.downloaded ?? 0;
+  return Math.min(Math.round((Number(completed || 0) * 100) / size), 100)
+}
+
 const _export_sfc = (sfc, props) => {
   const target = sfc.__vccOpts || sfc;
   for (const [key, val] of props) {
@@ -54,4 +62,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, formatDateTime as a, formatBytes as f, taskStateMeta as t, unwrapResponse as u };
+export { _export_sfc as _, torrentProgress as a, formatDateTime as b, formatBytes as f, taskStateMeta as t, unwrapResponse as u };

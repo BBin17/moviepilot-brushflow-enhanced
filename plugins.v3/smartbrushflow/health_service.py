@@ -66,6 +66,9 @@ class DownloadHealthService:
             if self.pause_after_failed_repair and action == "pause":
                 pause_hashes.append(torrent_hash)
             health_store[torrent_hash] = {**record, "hash": torrent_hash}
+            added_at = float(torrent_info.get("add_on") or torrent_task.get("time") or 0)
+            age_hours = max(now - added_at, 0) / 3600 if added_at > 0 else None
+            avg_kbps = float(health.get("avg_download_speed_kbps") or 0)
             torrent_task.update(
                 {
                     "downloaded": torrent_info.get("downloaded"),
@@ -82,6 +85,16 @@ class DownloadHealthService:
                     "download_health_avg_kbps": health.get("avg_download_speed_kbps", 0),
                     "download_health_progress_delta": health.get("progress_delta", 0),
                     "download_health_checked_at": now,
+                    "download_health_auto_paused": bool(record.get("paused_at")),
+                    "download_age_hours": age_hours,
+                    "download_overdue": bool(not is_completed and age_hours is not None and age_hours >= health_policy.max_download_hours),
+                    "download_eta_hours": max(total_size - completed_bytes, 0) / (avg_kbps * 1024 * 3600) if avg_kbps > 0 else None,
+                    "total_size": total_size,
+                    "upload_speed": torrent_info.get("upload_speed"),
+                    "active_peers": torrent_info.get("active_peers"),
+                    "seeders": torrent_info.get("seeders"),
+                    "leechers": torrent_info.get("leechers"),
+                    "add_on": added_at,
                 }
             )
         self.write("download_health", health_store)
@@ -89,6 +102,8 @@ class DownloadHealthService:
         for torrent_hash, result in outcomes.items():
             if torrent_hash in torrent_tasks:
                 torrent_tasks[torrent_hash]["download_health_action_error"] = result["error"]
+                if result["success"] and result["action"] == "pause":
+                    torrent_tasks[torrent_hash]["download_health_auto_paused"] = True
 
     def apply(self, repair_hashes: List[str], pause_hashes: List[str]) -> dict:
         """Freshly recheck incomplete state and commit only acknowledged actions."""
@@ -169,6 +184,7 @@ class DownloadHealthService:
                     HEALTH_QUEUED,
                     HEALTH_ERROR,
                 }
+                or row.get("download_overdue") or row.get("download_health_auto_paused")
             ],
             key=lambda item: (
                 {
@@ -187,6 +203,9 @@ class DownloadHealthService:
             "checking_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_CHECKING),
             "error_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_ERROR),
             "paused_count": sum(1 for _, row in active_rows if row.get("download_health") == HEALTH_PAUSED),
+            "overdue_count": sum(bool(row.get("download_overdue")) for _, row in active_rows),
+            "auto_paused_count": sum(bool(row.get("download_health_auto_paused")) for _, row in active_rows),
+            "issue_count": len(items),
             "observed_count": sum(
                 1
                 for _, row in active_rows

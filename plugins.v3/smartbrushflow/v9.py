@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from copy import deepcopy
 from typing import Any, Dict, List, Literal, Mapping, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -110,6 +111,7 @@ class StrategyOverrides(BaseModel):
     max_release_gb_day: Optional[float] = Field(None, gt=0)
     cold_protection_minutes: float = Field(360, ge=0)
     demand_confirmations: int = Field(2, ge=1, le=3)
+    tracker_demand_grace_hours: float = Field(24, ge=6, le=168)
 
     @model_validator(mode="after")
     def validate_capacity_loop(self):
@@ -172,6 +174,7 @@ class HealthConfig(BaseModel):
     stalled_window_minutes: float = Field(30, ge=10, le=1440)
     slow_after_hours: float = Field(6, ge=1, le=168)
     slow_speed_kbps: float = Field(128, ge=1)
+    max_download_hours: float = Field(48, ge=1, le=720)
     auto_repair: bool = True
     pause_after_failed_repair: bool = True
 
@@ -265,6 +268,7 @@ class TaskConfigV9(BaseModel):
             "smart_max_delete_gb_per_day": override.max_release_gb_day,
             "smart_cold_inactive_minutes": override.cold_protection_minutes,
             "smart_demand_confirmations": override.demand_confirmations,
+            "smart_tracker_demand_grace_hours": override.tracker_demand_grace_hours,
             "del_no_free": False,
         }
 
@@ -390,4 +394,26 @@ def migrate_task_rows_v9(
             saved.setdefault(task.id, {"saved_at": timestamp, "config": dict(source)})
             changed = True
         result.append(task.model_dump(mode="json"))
+    return result, saved, changed
+
+
+def migrate_yield_policy(rows, backups=None, *, now=None):
+    """One-time 1.2 policy upgrade; preserve settings and restart safe observation."""
+    timestamp = float(now if now is not None else time.time())
+    saved, result, changed = deepcopy(backups or {}), [], False
+    for original in rows:
+        source = deepcopy(original)
+        if isinstance(source, dict) and source.get("identity"):
+            overrides = source.setdefault("strategy", {}).setdefault("overrides", {})
+            if "tracker_demand_grace_hours" not in overrides:
+                task_id = str(source.get("id") or "")
+                saved.setdefault(task_id, {"saved_at": timestamp, "config": deepcopy(original)})
+                overrides["tracker_demand_grace_hours"] = 24
+                deletion = source.setdefault("deletion", {})
+                if deletion.get("enabled"):
+                    deletion["observation_started_at"] = timestamp
+                    deletion["observation_until"] = max(float(deletion.get("observation_until") or 0), timestamp + 48 * 3600)
+                source["revision"] = int(source.get("revision") or 1) + 1
+                changed = True
+        result.append(source)
     return result, saved, changed

@@ -23,8 +23,10 @@ class TaskActionPayload(BaseModel):
     request_id: Optional[str] = Field(None, min_length=8, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
     preview_id: Optional[str] = Field(None, min_length=32, max_length=32, pattern=r"^[a-f0-9]+$")
     revision: Optional[int] = Field(None, ge=1)
+    torrent_hash: Optional[str] = Field(None, min_length=16, max_length=64)
     confirm: bool = False
     relax_limits: bool = False
+    delete_data: bool = False
 
 
 class SmartBrushFlowSettingsPayload(BaseModel):

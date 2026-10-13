@@ -28,6 +28,7 @@ class DownloadHealthPolicy:
     stalled_window_minutes: float = 30.0
     slow_after_hours: float = 6.0
     slow_speed_kbps: float = 128.0
+    max_download_hours: float = 48.0
     history_days: float = 7.0
     max_samples: int = 200
     max_sample_gap_minutes: float = 60.0

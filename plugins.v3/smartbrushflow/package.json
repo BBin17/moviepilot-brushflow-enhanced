@@ -1,13 +1,14 @@
 {
   "name": "moviepilot-smartbrushflow-plugin",
   "private": true,
-  "version": "1.1.5",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
     "check:release": "python3 ../../scripts/check_smartbrushflow_release.py",
     "test:defaults": "node ../../scripts/check_smartbrushflow_frontend_defaults.mjs",
-    "build": "npm run check:release && npm run test:defaults && vite build"
+    "test:ui": "node --test ../../tests/frontend/smartbrushflow-loading.test.mjs",
+    "build": "npm run check:release && npm run test:defaults && npm run test:ui && vite build"
   },
   "dependencies": {
     "vue": "^3.5.13",

@@ -174,6 +174,7 @@ class TorrentObservation:
     yield_per_gb_24h: float = 0.0
     learned_potential: float = 0.0
     demand_confirmations: Optional[int] = None
+    tracker_demand_stale: bool = False
     low_value_confirmations: Optional[int] = None
     low_value_span_minutes: float = 0.0
     capacity_pressure: float = 0.0
@@ -214,6 +215,7 @@ class TorrentObservation:
             yield_per_gb_24h=_positive(data.get("yield_per_gb_24h")),
             learned_potential=max(0.0, min(_number(data.get("learned_potential")), 15.0)),
             demand_confirmations=max(int(_number(data["demand_confirmations"])), 0) if data.get("demand_confirmations") is not None else None,
+            tracker_demand_stale=bool(data.get("tracker_demand_stale", False)),
             low_value_confirmations=max(int(_number(data["low_value_confirmations"])), 0) if data.get("low_value_confirmations") is not None else None,
             low_value_span_minutes=_positive(data.get("low_value_span_minutes")),
             # 容量压力允许超过 100%，供超额恢复模式区分“刚触发”与严重超额。
@@ -241,6 +243,7 @@ class SmartPolicy:
     smart_cold_inactive_minutes: float = 360.0
     protect_active_demand: bool = True
     demand_confirmations: int = 2
+    tracker_demand_grace_hours: float = 24.0
     low_value_confirmations: int = 3
     low_value_span_minutes: float = 30.0
     ratio_target: float = 2.0
@@ -439,6 +442,7 @@ def candidate_score(
     learned_expected_yield: Optional[float] = None,
     learned_median_yield: Optional[float] = None,
     learning_confidence: float = 0.0,
+    task_capacity_bytes: float = 0.0,
 ) -> CandidateDecision:
     """计算 9.0 选种收益分，并保留未知 Tracker 人数的中性语义。"""
     download_factor = _number(_read_candidate(candidate, "downloadvolumefactor"), 1.0)
@@ -453,8 +457,11 @@ def candidate_score(
 
     promotion = min((12.0 if download_factor == 0 else 0.0) + (8.0 if upload_factor >= 2 else 0.0), 20.0)
     demand = 0.0
+    competition = 0.0
     if trusted_demand and leechers is not None:
         demand = min(math.log1p(leechers) / math.log1p(50), 1.0) * 25.0
+        if seeders is not None:
+            competition = min(seeders / max(leechers * 10, 1), 1) * 12.0
     scarcity = 0.0
     if seeders is not None:
         scarcity = max(0.0, 1.0 - min(seeders / 20.0, 1.0)) * 15.0
@@ -480,6 +487,7 @@ def candidate_score(
         "base": 10.0,
         "promotion": round(promotion, 2),
         "demand": round(demand, 2),
+        "competition": round(-competition, 2),
         "scarcity": round(scarcity, 2),
         "freshness": round(freshness, 2),
         "local_yield": round(local_yield, 2),
@@ -503,7 +511,12 @@ def candidate_score(
         reasons.append("fresh")
 
     guarded_profile = str(profile or "balanced").lower() in {"balanced", "conservative", "custom"}
-    if guarded_profile and size_gb > 50 and not trusted_demand:
+    strong_demand = bool(trusted_demand and leechers is not None and leechers >= 3
+                         and (seeders is None or leechers / max(seeders, 1) >= .1))
+    if task_capacity_bytes > 0 and size > task_capacity_bytes * .25:
+        accepted = False
+        reasons.append("oversized_for_task")
+    if size_gb > 50 and not strong_demand:
         accepted = False
         reasons.append("large_without_trusted_demand")
     elif guarded_profile and 20 <= size_gb <= 50 and not trusted_demand:
@@ -539,6 +552,7 @@ def rank_selection_candidates(
     learning: Optional[Mapping[str, Mapping[str, float]]] = None,
     learning_confidence: float = 0.0,
     learned_median_yield: Optional[float] = None,
+    task_capacity_bytes: float = 0.0,
 ) -> tuple[RankedCandidate, ...]:
     ranked: list[RankedCandidate] = []
     for candidate in candidates:
@@ -558,7 +572,8 @@ def rank_selection_candidates(
             learned_yield_score=learned.get("score"),
             learned_expected_yield=learned.get("expected"),
             learned_median_yield=learned_median_yield,
-            learning_confidence=learning_confidence,
+            learning_confidence=min(learning_confidence, _number(learned.get("confidence"), learning_confidence)),
+            task_capacity_bytes=task_capacity_bytes,
         )
         if decision.score < min_score:
             decision = CandidateDecision(
@@ -664,7 +679,7 @@ def retention_score(
         + min(math.log1p(yields[2]) / math.log1p(0.02), 1.0) * 5.0
     )
     demand_confirmations = _demand_confirmations(observation, history)
-    trusted_demand = bool(observation.leechers and demand_confirmations >= 2)
+    trusted_demand = bool(observation.leechers and demand_confirmations >= 2 and not observation.tracker_demand_stale)
     activity_signal = 12.0 if trusted_demand else 0.0
     if observation.active_peers and observation.active_peers > 0:
         activity_signal = max(activity_signal, 18.0)
@@ -734,7 +749,7 @@ def evaluate_candidate(
         return blocked("real_upload")
     if observation.active_peers is not None and observation.active_peers > 0:
         return blocked("active_connection")
-    if policy.protect_active_demand and observation.leechers and (
+    if policy.protect_active_demand and not observation.tracker_demand_stale and observation.leechers and (
         _demand_confirmations(observation, history) >= max(policy.demand_confirmations, 1)
     ):
         return blocked("trusted_active_demand")

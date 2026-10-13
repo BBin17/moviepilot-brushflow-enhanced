@@ -39,7 +39,7 @@ def build_health_summary(
     """按固定优先级返回白话结论和可执行动作。"""
     actions = []
     stalled_or_slow = int(download.get("stalled_count") or 0) + int(download.get("slow_count") or 0)
-    download_issue_count = stalled_or_slow + int(download.get("queued_count") or 0) + int(download.get("error_count") or 0)
+    download_issue_count = int(download.get("issue_count", stalled_or_slow + int(download.get("queued_count") or 0) + int(download.get("error_count") or 0)))
     if runtime_error:
         health = {"level": "error", "title": "任务运行异常", "message": str(runtime_error), "status": "runtime_error"}
         actions.append(_action("run_check", "重新检查", "error", "将立即检查下载器中的种子状态，确认继续吗？"))
@@ -67,7 +67,7 @@ def build_health_summary(
     elif download_issue_count:
         health = {
             "level": "warning", "title": "部分下载需要关注", "status": "download_issue",
-            "message": f"发现 {download_issue_count} 个卡住、低速、排队或报错的下载，未完成数据不会被自动删除。",
+            "message": f"有 {download_issue_count} 个下载需要处理，包含超时或修复后暂停的任务；请打开下载健康详情。",
         }
         actions.append(
             _action(

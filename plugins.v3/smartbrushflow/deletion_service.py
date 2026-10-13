@@ -19,7 +19,7 @@ from .decision import (
     manual_cleanup_policy, select_deletions,
 )
 from .downloaders import DownloaderUnavailable
-from .learning import feature_key, learning_summary, predict_yield, recent_yield_metrics, update_learning_state
+from .learning import feature_key, learning_summary, predict_yield, recent_yield_metrics, update_learning_state, measure_upload_window
 from .operations import OperationError, TaskService, UNRESOLVED_ITEMS
 
 
@@ -41,6 +41,7 @@ def policy_for_document(document) -> SmartPolicy:
         profile=document.strategy.profile, min_seed_time_hours=document.deletion.min_seed_hours or 0,
         smart_cold_inactive_minutes=overrides.cold_protection_minutes,
         demand_confirmations=overrides.demand_confirmations,
+        tracker_demand_grace_hours=overrides.tracker_demand_grace_hours,
         low_value_confirmations=overrides.candidate_confirmations,
         low_value_span_minutes=overrides.confirmation_minutes,
         score_threshold=overrides.deletion_score_threshold,
@@ -81,7 +82,7 @@ def hard_safety_reasons(observation: dict, policy: SmartPolicy) -> list[str]:
         reasons.append("real_upload")
     if number(observation["active_peers"]) > 0:
         reasons.append("active_connection")
-    if number(observation.get("leechers")) > 0 and number(observation.get("demand_confirmations")) >= policy.demand_confirmations:
+    if not observation.get("tracker_demand_stale") and number(observation.get("leechers")) > 0 and number(observation.get("demand_confirmations")) >= policy.demand_confirmations:
         reasons.append("trusted_active_demand")
     return reasons
 
@@ -180,6 +181,16 @@ class DeletionService:
             info["low_value_span_minutes"] = max(newest - since, 0) / 60
             info.update(recent_yield_metrics(learning, torrent_hash, uploaded=number(info.get("uploaded")),
                         size=number(info.get("size")), now=now, snapshots_by_hash=snapshots_by_hash))
+            demand_window = measure_upload_window(
+                snapshots_by_hash[torrent_hash], uploaded=number(info.get("uploaded")), now=now,
+                hours=self.policy.tracker_demand_grace_hours,
+            )
+            info["tracker_demand_stale"] = bool(
+                demand_window["complete"] and demand_window["delta"] == 0
+                and number(info.get("upload_speed"), -1) == 0
+                and number(info.get("active_peers"), -1) == 0
+                and info["upload_delta_since_check"] == 0
+            )
             learned = predict_yield(learning, record)
             info["learned_potential"] = learned["score"] / 25 * 15 * learned["confidence"]
             info["pending_confirmation"] = torrent_hash in pending
@@ -458,6 +469,10 @@ class DeletionService:
                 "score": row.score,
                 "reason_codes": list(row.reason_codes),
                 "contributions": dict(row.contributions),
+                "tracker_demand_stale": bool(observation.get("tracker_demand_stale")),
+                "upload_delta_24h": number(observation.get("upload_delta_24h")),
+                "upload_window_observed_24h": bool(observation.get("upload_window_observed_24h")),
+                "seeding_time": number(observation.get("seeding_time")),
             })
         self.write("current_deletion_plan", {
             "at": now,

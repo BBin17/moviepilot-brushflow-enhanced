@@ -49,13 +49,19 @@ from .download_health import (
     health_label,
     policy_for_profile,
 )
-from .v9 import TaskConfigV9, migrate_task_rows_v9
+from .v9 import TaskConfigV9, migrate_task_rows_v9, migrate_yield_policy
 from .presentation import build_health_summary, deletion_quota_message
 from .repository import TaskRepository
 from .health_service import DownloadHealthService
+from .performance import performance_rows, summarize_performance
 from .operations import OperationError, TaskService
 from .deletion_service import DeletionService
 from .downloaders import DownloaderAdapter, DownloaderUnavailable
+from .manual_download_deletion import (
+    ManualDownloadDeletionService,
+    ManualDownloadDeleteError,
+    PENDING_CONFIRMATION_GRACE_SECONDS,
+)
 
 
 TASK_CONFIG_FIELDS = (
@@ -94,6 +100,7 @@ TASK_CONFIG_FIELDS = (
     "smart_cold_inactive_minutes",
     "smart_protect_active_demand",
     "smart_demand_confirmations",
+    "smart_tracker_demand_grace_hours",
     "smart_candidate_confirmations",
     "smart_candidate_confirmation_minutes",
     "smart_capacity_trigger_percent",
@@ -226,6 +233,7 @@ class BrushTaskConfig:
             1,
             min(int(self._parse_number(config.get("smart_demand_confirmations", 2)) or 2), 3),
         )
+        self.smart_tracker_demand_grace_hours = float(config.get("smart_tracker_demand_grace_hours") or 24)
         self.smart_candidate_confirmations = max(
             1,
             int(self._parse_number(config.get("smart_candidate_confirmations", 3)) or 3),
@@ -366,6 +374,7 @@ class SmartBrushFlow(_PluginBase):
         "cleanup_previews",
         "current_deletion_plan",
         "download_health",
+        "manual_download_deletions",
         "invalid_seed_history",
         "invalid_seed_plan",
     )
@@ -400,6 +409,11 @@ class SmartBrushFlow(_PluginBase):
         if migrated:
             task_rows = self._migrate_legacy_config(raw_config)
         task_rows = task_rows or []
+        task_rows, yield_backups, yield_migrated = migrate_yield_policy(
+            task_rows, self._repository.get_global("v1_2_policy_backups", {}) or {},
+        )
+        if yield_migrated:
+            self._repository.save_global("v1_2_policy_backups", yield_backups)
         v9_backups = self._repository.get_global("v9_task_config_backups", {}) or {}
         task_rows, v9_backups, migrated_v9 = migrate_task_rows_v9(task_rows, v9_backups)
         if migrated_v9:
@@ -424,7 +438,7 @@ class SmartBrushFlow(_PluginBase):
             self._task_service.recover_interrupted(task_id)
 
         normalized = self._current_config()
-        if migrated or migrated_v9 or raw_config != normalized:
+        if migrated or migrated_v9 or yield_migrated or raw_config != normalized:
             self.update_config(normalized)
         self._migrate_legacy_data()
         self._migrate_torrent_identity_data()
@@ -884,12 +898,13 @@ class SmartBrushFlow(_PluginBase):
                 document.strategy.overrides.deletion_score_threshold > previous.smart_score_threshold
                 or document.strategy.overrides.candidate_confirmations < previous.smart_candidate_confirmations
                 or document.strategy.overrides.confirmation_minutes < previous.smart_candidate_confirmation_minutes
+                or document.strategy.overrides.tracker_demand_grace_hours < previous_document.strategy.overrides.tracker_demand_grace_hours
             )
         )
         if newly_enabled or risk_increased:
             now = time.time()
             document.deletion.observation_started_at = now
-            document.deletion.observation_until = now + (48 if newly_enabled else 24) * 3600
+            document.deletion.observation_until = max(float(previous_document.deletion.observation_until or 0), now + 48 * 3600)
         task = BrushTaskConfig(document.to_runtime())
         if not self._validate_task_reference(task):
             return schemas.Response(success=False, message="站点或下载器配置无效")
@@ -905,12 +920,14 @@ class SmartBrushFlow(_PluginBase):
         state: str = Query("active", pattern="^(active|deleted|all)$"),
         page: int = Query(1, ge=1),
         page_size: int = Query(50, ge=10, le=200),
+        sort: str = Query("newest", pattern="^(newest|yield|size|seed_time)$"),
+        filter: str = Query("all", pattern="^(all|zero_upload|min_seed_met|download_issues)$"),
     ) -> schemas.Response:
         if task_id not in self._task_configs:
             return schemas.Response(success=False, message="刷流任务不存在")
         return schemas.Response(
             success=True,
-            data=self._paginate_task_torrents(task_id, state=state, page=page, page_size=page_size),
+            data=self._paginate_task_torrents(task_id, state=state, page=page, page_size=page_size, sort=sort, filter=filter),
         )
 
     def get_task_events(
@@ -1022,6 +1039,42 @@ class SmartBrushFlow(_PluginBase):
             if not payload or not payload.preview_id or not payload.request_id or not payload.confirm:
                 return self._operation_error(OperationError("needs_preview", "请先预览并确认本轮清理名单"))
             return self._submit_task_operation(task_id, "cleanup", payload=payload)
+        if action == "delete_unhealthy_download":
+            if not payload or not payload.torrent_hash or not payload.request_id or not payload.confirm:
+                return self._operation_error(OperationError("confirmation_required", "请先选择一个卡住或低速种子并确认移除"))
+            try:
+                with self._get_task_service().guard(task_id), self._task_scope(task_id):
+                    task = self._task_configs[task_id]
+                    service = DownloaderHelper().get_service(name=task.downloader)
+                    if not service or not service.instance:
+                        raise DownloaderUnavailable("下载器不可用")
+                    deletion = ManualDownloadDeletionService(
+                        adapter=DownloaderAdapter(
+                            service.instance,
+                            identify=self.__get_hash,
+                            normalize=lambda torrent: self.__get_torrent_info(torrent, service=service),
+                        ),
+                        read_data=lambda name: self._get_task_data(task_id, name),
+                        write_data=lambda name, value: self._save_task_data(task_id, name, value),
+                        slow_speed_kbps=self._task_documents[task_id].health.slow_speed_kbps,
+                    )
+                    result = deletion.delete(
+                        torrent_hash=payload.torrent_hash,
+                        request_id=payload.request_id,
+                        confirm=payload.confirm,
+                        delete_data=payload.delete_data,
+                    )
+                    return schemas.Response(
+                        success=True,
+                        message=result.get("message") or "手动移除请求已处理",
+                        data={"result": result, "task": self._build_task_overview(task_id)},
+                    )
+            except ManualDownloadDeleteError as error:
+                return self._operation_error(OperationError(error.code, str(error)))
+            except DownloaderUnavailable:
+                return schemas.Response(success=False, message="下载器不可用，本次没有提交移除", data={"code": "downloader_unavailable"})
+            except OperationError as error:
+                return self._operation_error(error)
         try:
             with self._get_task_service().guard(task_id):
                 return self._apply_task_action(task_id, action)
@@ -1924,18 +1977,36 @@ class SmartBrushFlow(_PluginBase):
         state: str = "active",
         page: int = 1,
         page_size: int = 50,
+        sort: str = "newest",
+        filter: str = "all",
     ) -> Dict[str, Any]:
         """按任务和状态分页读取托管种子。"""
         torrents = self._get_task_data(task_id, "torrents") or {}
         archived = self._get_task_data(task_id, "archived") or {}
-        rows = list(torrents.values())
+        rows = [{**row, "hash": str(key)} for key, row in torrents.items()]
         if state == "active":
             rows = [row for row in rows if not row.get("deleted")]
         elif state == "deleted":
-            rows = [row for row in rows if row.get("deleted")] + list(archived.values())
+            rows = [row for row in rows if row.get("deleted")] + [{**row, "hash": str(key)} for key, row in archived.items()]
         else:
-            rows.extend(archived.values())
-        rows.sort(key=lambda item: item.get("time") or 0, reverse=True)
+            rows.extend({**row, "hash": str(key)} for key, row in archived.items())
+        enriched = performance_rows({str(row.get("hash") or index): row for index, row in enumerate(rows)},
+                                   self._get_task_data(task_id, "learning_state") or {},
+                                   min_seed_hours=self._task_configs[task_id].min_seed_time or 0)
+        rows = list(enriched.values())
+        if filter == "zero_upload":
+            rows = [row for row in rows if row["mature_zero_upload"]]
+        elif filter == "min_seed_met":
+            rows = [row for row in rows if row["min_seed_met"]]
+        elif filter == "download_issues":
+            rows = [row for row in rows if row.get("download_overdue") or row.get("download_health_auto_paused") or row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_ERROR, HEALTH_QUEUED}]
+        sort_key = {
+            "newest": lambda row: -float(row.get("time") or 0),
+            "yield": lambda row: (row["yield_per_gb_24h"], -row["size"]),
+            "size": lambda row: -row["size"],
+            "seed_time": lambda row: -float(row.get("seeding_time") or 0),
+        }.get(sort, lambda row: -float(row.get("time") or 0))
+        rows.sort(key=sort_key)
         total = len(rows)
         start = (page - 1) * page_size
         selected_rows = rows[start : start + page_size]
@@ -1970,26 +2041,15 @@ class SmartBrushFlow(_PluginBase):
         torrents = self._get_task_data(task_id, "torrents") or {}
         current_size = self.__calculate_seeding_torrents_size(torrents)
         download_health = self._build_download_health_summary(torrents)
-        uploaded_24h = 0.0
-        snapshots = learning_state.get("snapshots", []) if isinstance(learning_state, dict) else []
-        previous_by_hash: Dict[str, dict] = {}
-        for row in snapshots:
-            if float(row.get("at") or 0) > now - 24 * 3600:
-                continue
-            torrent_hash = str(row.get("hash") or "")
-            if torrent_hash and float(row.get("at") or 0) > float(
-                previous_by_hash.get(torrent_hash, {}).get("at") or 0
-            ):
-                previous_by_hash[torrent_hash] = row
-        for torrent_hash, torrent in torrents.items():
-            if torrent.get("deleted"):
-                continue
-            previous = previous_by_hash.get(str(torrent_hash))
-            if previous:
-                uploaded_24h += max(
-                    float(torrent.get("uploaded") or 0) - float(previous.get("uploaded") or 0),
-                    0.0,
-                )
+        recent_archived = {key: row for key, row in (self._get_task_data(task_id, "archived") or {}).items()
+                           if float(row.get("deleted_time") or row.get("manual_removed_at") or 0) > now - 86400}
+        performance = summarize_performance(performance_rows(
+            {**recent_archived, **torrents}, learning_state, min_seed_hours=task.min_seed_time or 0, now=now,
+        ))
+        evaluated_by_hash = {str(row.get("hash")): row for row in current_plan.get("evaluated", [])}
+        for row in performance["low_yield_items"]:
+            row["reasons"] = evaluated_by_hash.get(row["hash"], {}).get("reason_codes", [])
+        uploaded_24h = performance["uploaded_bytes_24h"]
         deleted_rows = self._get_task_data(task_id, "smart_deletions") or []
         actual_freed_24h = sum(
             float(row.get("size") or 0)
@@ -2139,6 +2199,7 @@ class SmartBrushFlow(_PluginBase):
         runs = self._get_task_data(task_id, "runs") or []
         latest_brush = next((row for row in runs if row.get("kind") == "brush"), {})
         selection_summary = {
+            "source_checked": bool(latest_brush.get("source_count") or latest_brush.get("result") in {"completed", "no_candidates"}),
             "candidate_count": int(latest_brush.get("source_count") or 0),
             "added_count": int(latest_brush.get("added_count") or 0),
             "filtered_count": int(latest_brush.get("filtered_count") or 0),
@@ -2179,6 +2240,13 @@ class SmartBrushFlow(_PluginBase):
         health = presentation["health"]
         recommended_actions = presentation["recommended_actions"]
         download_issue_count = presentation["download_issue_count"]
+        manual_delete_pending = {
+            str(row.get("hash"))
+            for row in (self._get_task_data(task_id, "manual_download_deletions") or [])
+            if isinstance(row, dict)
+            and row.get("state") in {"submitting", "pending_confirmation"}
+            and time.time() - float(row.get("updated_at") or 0) < PENDING_CONFIRMATION_GRACE_SECONDS
+        }
         download_issues = [
             {
                 "hash": str(torrent_hash),
@@ -2187,13 +2255,21 @@ class SmartBrushFlow(_PluginBase):
                 "state": row.get("download_health") or HEALTH_UNKNOWN,
                 "label": row.get("download_health_label") or health_label(row.get("download_health")),
                 "reason": row.get("download_health_reason"),
+                "delete_pending": str(torrent_hash) in manual_delete_pending,
+                "overdue": bool(row.get("download_overdue")),
+                "age_hours": row.get("download_age_hours"),
+                "eta_hours": row.get("download_eta_hours"),
+                "auto_paused": bool(row.get("download_health_auto_paused")),
+                "action_error": row.get("download_health_action_error"),
             }
             for torrent_hash, row in torrents.items()
             if not row.get("deleted")
-            and row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_QUEUED, HEALTH_ERROR, HEALTH_PAUSED}
+            and (row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_QUEUED, HEALTH_ERROR, HEALTH_PAUSED}
+                 or row.get("download_overdue") or row.get("download_health_auto_paused"))
         ][:50]
         ui_summary = {
             "health": health,
+            "performance": performance,
             "capacity": {
                 "current_bytes": current_size,
                 "limit_bytes": capacity,
@@ -2218,6 +2294,9 @@ class SmartBrushFlow(_PluginBase):
                 "queued_count": int(download_health.get("queued_count") or 0),
                 "error_count": int(download_health.get("error_count") or 0),
                 "paused_count": int(download_health.get("paused_count") or 0),
+                "overdue_count": int(download_health.get("overdue_count") or 0),
+                "auto_paused_count": int(download_health.get("auto_paused_count") or 0),
+                "issue_count": download_issue_count,
                 "issues": download_issues,
             },
             "recommended_actions": recommended_actions,
@@ -2463,6 +2542,7 @@ class SmartBrushFlow(_PluginBase):
                 learning=learned_by_candidate,
                 learning_confidence=learning_info["confidence"],
                 learned_median_yield=learned_median,
+                task_capacity_bytes=capacity_limit,
             )
             report["smart_selection_count"] = len(ranked_candidates)
             if torrents and not ranked_candidates:
@@ -2494,7 +2574,8 @@ class SmartBrushFlow(_PluginBase):
                     learned_yield_score=learned.get("score"),
                     learned_expected_yield=learned.get("expected"),
                     learned_median_yield=learned_median,
-                    learning_confidence=learning_info["confidence"],
+                    learning_confidence=min(learning_info["confidence"], float(learned.get("confidence") or 0)),
+                    task_capacity_bytes=capacity_limit,
                 )
                 accepted = id(candidate) in selected_keys and decision.score >= selection_min_score
                 reasons = list(decision.reason_codes)
@@ -2994,6 +3075,7 @@ class SmartBrushFlow(_PluginBase):
             stalled_window_minutes=document.health.stalled_window_minutes,
             slow_after_hours=document.health.slow_after_hours,
             slow_speed_kbps=document.health.slow_speed_kbps,
+            max_download_hours=document.health.max_download_hours,
             max_sample_gap_minutes=max(60, document.schedule.check_interval * 2),
         ) if document else policy_for_profile(task.smart_profile if task else "balanced")
         return DownloadHealthService(
@@ -3083,7 +3165,7 @@ class SmartBrushFlow(_PluginBase):
             "missing_min_seed_time": "未配置站点最低保种时长",
             "min_seed_time": "尚未达到站点最低保种时长",
             "active_demand": "当前存在下载需求",
-            "trusted_active_demand": "最近 3 次中至少 2 次存在真实下载需求",
+            "trusted_active_demand": "Tracker重复报告下载需求，等待实际上传验证",
             "real_upload": "最近出现真实上传增量或正在上传",
             "active_connection": "下载器仍有有效活动连接",
             "smart_cold_cooldown": "尚未达到智能冷种保护时间",
@@ -3119,6 +3201,7 @@ class SmartBrushFlow(_PluginBase):
             smart_cold_inactive_minutes=float(task.smart_cold_inactive_minutes or 0),
             protect_active_demand=bool(task.smart_protect_active_demand),
             demand_confirmations=int(task.smart_demand_confirmations or 2),
+            tracker_demand_grace_hours=task.smart_tracker_demand_grace_hours,
             low_value_confirmations=int(task.smart_candidate_confirmations or 3),
             low_value_span_minutes=float(task.smart_candidate_confirmation_minutes or 0),
             ratio_target=float(task.site_ratio_target or 2.0),
@@ -3205,7 +3288,7 @@ class SmartBrushFlow(_PluginBase):
                     break
                 if row.get("leechers") is not None:
                     demand_values.append(float(row.get("leechers") or 0) > 0)
-            if sum(demand_values[:3]) >= int(task.smart_demand_confirmations or 2):
+            if not observation.get("tracker_demand_stale") and sum(demand_values[:3]) >= int(task.smart_demand_confirmations or 2):
                 candidate.update({"recovered": True, "recovered_at": now, "recovery_reason": "trusted_demand"})
 
         for result in selection.selected:

@@ -120,11 +120,13 @@ def _percentile(values: Sequence[float], percentile: float) -> float:
 
 
 def winsorize(value: float, samples: Sequence[float]) -> float:
-    """用历史 5/95 分位截尾，避免单次爆发污染任务模型。"""
-    clean = [max(_number(item), 0.0) for item in samples if _number(item, -1.0) >= 0]
+    """正收益按95分位截尾；零收益保持为零，也不会锁死后续增长。"""
+    clean = [_number(item) for item in samples if _number(item) > 0]
+    if _number(value) <= 0:
+        return 0.0
     if len(clean) < 5:
         return max(_number(value), 0.0)
-    return min(max(_number(value), _percentile(clean, 0.05)), _percentile(clean, 0.95))
+    return min(_number(value), _percentile(clean, 0.95))
 
 
 def _update_bucket(bucket: Mapping[str, Any] | None, value: float, elapsed_hours: float, now: float) -> dict:
@@ -233,18 +235,46 @@ def recent_yield_metrics(
         if str(row.get("hash") or "") == str(torrent_hash)
         and _number(row.get("at")) <= timestamp
     ]
-    rows.sort(key=lambda row: _number(row.get("at")))
-    size_gb = max(_number(size), 0.0) / GIB
     result = {}
     for hours in (1, 6, 24):
-        target = timestamp - hours * 3600
-        eligible = [row for row in rows if _number(row.get("at")) <= target]
-        previous = eligible[-1] if eligible else None
-        delta = max(_number(uploaded) - _number(previous.get("uploaded")), 0.0) if previous else 0.0
-        elapsed = max((timestamp - _number(previous.get("at"))) / 3600.0, 0.0) if previous else 0.0
-        result[f"upload_delta_{hours}h"] = delta
-        result[f"yield_per_gb_{hours}h"] = (delta / GIB / size_gb / elapsed) if size_gb > 0 and elapsed > 0 else 0.0
+        measured = measure_upload_window(rows, uploaded=uploaded, now=timestamp, hours=hours)
+        result[f"upload_delta_{hours}h"] = measured["delta"]
+        elapsed = measured["coverage_hours"]
+        result[f"yield_per_gb_{hours}h"] = measured["delta"] / max(size, 1) / elapsed if size > 0 and elapsed > 0 else 0.0
+        result[f"upload_window_observed_{hours}h"] = measured["complete"]
+        result[f"upload_coverage_hours_{hours}h"] = elapsed
     return result
+
+
+def measure_upload_window(rows, *, uploaded: float, now: float, hours: float = 24) -> dict:
+    """Measured deltas with explicit coverage; missing history is never zero income."""
+    start = now - hours * 3600
+    points = {_number(row.get("at")): _number(row.get("uploaded"), -1)
+              for row in rows if 0 < _number(row.get("at")) <= now and _number(row.get("uploaded"), -1) >= 0}
+    points[now] = max(_number(uploaded), 0)
+    ordered = sorted(points.items())
+    before = [point for point in ordered if point[0] <= start]
+    after = [point for point in ordered if point[0] > start]
+    if not after:
+        return {"delta": 0.0, "coverage_hours": 0.0, "complete": False}
+    full = bool(before)
+    if before:
+        left, right = before[-1], after[0]
+        if right[0] - left[0] > 2 * 3600 or right[1] < left[1]:
+            full = False
+            window = after
+        else:
+            fraction = (start - left[0]) / max(right[0] - left[0], 1)
+            window = [(start, left[1] + fraction * (right[1] - left[1]))] + after
+    else:
+        window = after
+    delta = 0.0
+    for left, right in zip(window, window[1:]):
+        if right[1] < left[1] or right[0] - left[0] > 2 * 3600:
+            full = False
+        delta += max(right[1] - left[1], 0)
+    elapsed = max(now - window[0][0], 0) / 3600
+    return {"delta": delta, "coverage_hours": min(elapsed, hours), "complete": full and elapsed >= hours}
 
 
 def predict_yield(state: Mapping[str, Any] | None, item: Any) -> dict:
@@ -253,7 +283,10 @@ def predict_yield(state: Mapping[str, Any] | None, item: Any) -> dict:
     features = current.get("features") or {}
     exact = features.get(feature_key(item)) or {}
     global_row = features.get("__all__") or {}
-    expected = _number(exact.get("ewma"), _number(global_row.get("ewma"), 0.0))
+    bucket_samples = int(exact.get("count") or 0)
+    bucket_confidence = min(bucket_samples / 20, 1.0)
+    global_expected = _number(global_row.get("ewma"), 0.0)
+    expected = _number(exact.get("ewma"), global_expected) * bucket_confidence + global_expected * (1 - bucket_confidence)
     global_recent = global_row.get("recent") or []
     median = _percentile(global_recent, 0.5) if global_recent else _number(global_row.get("ewma"), 0.0)
     if expected <= 0 and median <= 0:
@@ -265,8 +298,8 @@ def predict_yield(state: Mapping[str, Any] | None, item: Any) -> dict:
         "expected": expected,
         "median": median,
         "score": round(score, 2),
-        "confidence": learning_confidence(int(current.get("sample_count") or 0)),
-        "bucket_samples": int(exact.get("count") or 0),
+        "confidence": learning_confidence(int(current.get("sample_count") or 0)) * bucket_confidence,
+        "bucket_samples": bucket_samples,
     }
 
 
