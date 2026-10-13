@@ -2,7 +2,7 @@
 
 ## 固定身份
 
-当前发布版本：`1.2.0`（2026-10-13）
+当前发布版本：`1.2.1`（2026-10-13）
 
 - 插件 ID：`SmartBrushFlow`
 - 展示名：智能刷流
@@ -11,6 +11,7 @@
 - 市场索引：根目录 `package.v3.json`
 - API 前缀：`/api/v1/plugin/SmartBrushFlow`
 - qB 标签前缀：`智能刷流-`
+- 侧栏分组：`discovery`，位置为“发现 → 推荐 → 探索 → 智能刷流”；权限仍为`manage`。1.2.1只调整入口，不重新开始已有观察期。
 - GitHub：`https://github.com/BBin17/moviepilot-brushflow-enhanced`
 
 ## 发布检查

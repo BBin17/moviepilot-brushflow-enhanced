@@ -24,8 +24,25 @@ def test_smartbrushflow_is_a_distinct_v3_plugin() -> None:
 
     metadata = json.loads((ROOT / "package.v3.json").read_text(encoding="utf-8"))
     assert metadata["SmartBrushFlow"]["name"] == "智能刷流"
-    assert metadata["SmartBrushFlow"]["version"] == "1.2.0"
+    assert metadata["SmartBrushFlow"]["version"] == "1.2.1"
     assert metadata["SmartBrushFlow"]["release"] is True
+
+
+def test_sidebar_entry_is_appended_to_discovery_without_changing_permissions():
+    from app.plugins.smartbrushflow import SmartBrushFlow
+
+    plugin = SmartBrushFlow()
+    plugin._enabled = True
+    plugin._show_sidebar_nav = True
+    assert plugin.get_sidebar_nav() == [{
+        "nav_key": "main", "title": "智能刷流", "icon": "mdi-sync",
+        "section": "discovery", "permission": "manage", "order": 45,
+    }]
+    plugin._show_sidebar_nav = False
+    assert plugin.get_sidebar_nav() == []
+    plugin._show_sidebar_nav = True
+    plugin._enabled = False
+    assert plugin.get_sidebar_nav() == []
 
 
 def test_old_and_new_plugin_sources_are_not_the_same_directory() -> None:

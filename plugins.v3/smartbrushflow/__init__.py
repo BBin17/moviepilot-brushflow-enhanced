@@ -471,7 +471,7 @@ class SmartBrushFlow(_PluginBase):
         return "vue", "dist/assets"
 
     def get_sidebar_nav(self) -> List[Dict[str, Any]]:
-        """向主界面整理分组注册刷流任务入口"""
+        """向发现分组末尾（内置探索下面）注册刷流任务入口。"""
         if not self.get_state() or not getattr(self, "_show_sidebar_nav", True):
             return []
         return [
@@ -479,7 +479,7 @@ class SmartBrushFlow(_PluginBase):
                 "nav_key": "main",
                 "title": "智能刷流",
                 "icon": "mdi-sync",
-                "section": "organize",
+                "section": "discovery",
                 "permission": "manage",
                 "order": 45,
             }
