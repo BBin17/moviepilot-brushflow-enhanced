@@ -168,6 +168,7 @@ class TorrentObservation:
     upload_delta_1h: float = 0.0
     upload_delta_6h: float = 0.0
     upload_delta_24h: float = 0.0
+    upload_window_observed_24h: bool = False
     upload_delta_since_check: float = 0.0
     yield_per_gb_1h: float = 0.0
     yield_per_gb_6h: float = 0.0
@@ -207,6 +208,7 @@ class TorrentObservation:
             upload_delta_1h=_positive(data.get("upload_delta_1h")),
             upload_delta_6h=_positive(data.get("upload_delta_6h")),
             upload_delta_24h=_positive(data.get("upload_delta_24h")),
+            upload_window_observed_24h=bool(data.get("upload_window_observed_24h", False)),
             upload_delta_since_check=_positive(
                 data.get("upload_delta_since_check", data.get("real_upload_delta"))
             ),
@@ -855,6 +857,22 @@ def select_deletions(
     run_byte_cap = budget["run_byte_cap"]
     daily_byte_cap = budget["daily_byte_cap"]
     remaining_daily_bytes = budget["remaining_daily_bytes"]
+    # All of these rows already passed the same hard guards and continuous
+    # confirmation. For fully observed zero-return seeds, use scarce deletion
+    # slots to repay capacity debt, with the smallest overshoot. Partial history
+    # never earns this preference; byte/count quotas remain unchanged.
+    debt = max(current_size - target_size, 0.0)
+    def recovery_priority(result):
+        item = by_hash[result.torrent_hash]
+        size = item.total_size
+        fits = (run_byte_cap <= 0 or size <= run_byte_cap) and (daily_byte_cap <= 0 or size <= remaining_daily_bytes)
+        zero = (item.upload_window_observed_24h and item.upload_delta_24h == 0
+                and item.upload_speed == 0 and item.upload_delta_since_check == 0
+                and item.active_peers == 0)
+        if zero and fits:
+            return (0, -min(size, debt), max(size - debt, 0), math.floor(result.score / 5), item.yield_per_gb_24h, -size)
+        return (1 if fits else 2, math.floor(result.score / 5), item.yield_per_gb_24h, -size, 0, 0)
+    eligible.sort(key=recovery_priority)
     selected: list[DecisionResult] = []
     reasons: list[str] = []
     freed = 0.0

@@ -2,7 +2,7 @@
 
 ## 固定身份
 
-当前发布版本：`1.2.1`（2026-10-13）
+当前发布版本：`1.2.2`（2026-10-14）
 
 - 插件 ID：`SmartBrushFlow`
 - 展示名：智能刷流
@@ -81,3 +81,10 @@ gh release create v1.2.0 "$sbf_release_dir/smartbrushflow_v1.2.0.zip" --target "
 - MoviePilot宿主将插件入口追加在分组内置菜单之后，因此发现组中显示“推荐 → 探索 → 智能刷流”。依据：[官方侧栏注册说明](https://github.com/jxxghp/MoviePilot-Plugins/blob/main/docs/faq/17-register-plugin-sidebar-nav.md)、[宿主导航合并实现](https://github.com/jxxghp/MoviePilot-Frontend/blob/v3/src/layouts/default/components/DefaultLayout.vue)。不要用DOM脚本移动宿主菜单。
 - 添加侧栏注册与启用/隐藏状态测试，171个后端测试及前端生产构建通过。更新不会改变原有收益策略或观察倒计时。
 - 已通过MoviePilot市场更新到1.2.1，整页刷新后实机确认入口位于“发现 → 推荐 → 探索 → 智能刷流”，原“整理”分组不再出现重复入口。
+
+## 1.2.2 空间恢复优化
+
+- 完整24小时零上传、已通过所有硬保护及连续确认的候选，优先覆盖容量欠额，再优先减少超量释放；窗口不完整仍使用原评分档位。单轮与滚动24小时数量/容量限额不改变。
+- `ui_summary.deletion.quota`从当前删除账本实时计算剩余额度和最早可用时间；未确认请求继续占额度，失败/跳过/过期记录不占额度。恢复时间为估算，候选及安全线变化会影响最终执行。
+- 超过单轮容量上限的大种明确提示“等待不会解决”；首页的“预览空间恢复清理”复用已有名单冻结、确认、最终复核及审计流程，不提交直接删除。
+- 保留三个任务配置、发现分组入口及已有观察状态；未手动执行清理或放宽NAS上的限额。

@@ -3,6 +3,7 @@ import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import TaskHealthCards from './TaskHealthCards.vue'
 import TaskWizardV9 from './TaskWizardV9.vue'
 import TaskPerformance from './TaskPerformance.vue'
+import TaskRecovery from './TaskRecovery.vue'
 import TaskTorrentTable from './TaskTorrentTable.vue'
 import { createLatestRequest } from '../latest-request'
 import { cloneTaskV9, newTaskV9, profileLabel } from '../v9-ui'
@@ -65,7 +66,7 @@ function createTask(){ wizardTask.value=newTaskV9(); wizard.value=true }
 function editTask(){ if(!task.value)return; wizardTask.value=cloneTaskV9(task.value); wizard.value=true }
 async function saveTask(payload){ saving.value=true; try{ const previous=task.value; const response=payload.id?await props.api.put(`${base.value}/tasks/${payload.id}`,payload):await props.api.post(`${base.value}/tasks`,payload); const data=unwrapResponse(response); selectedId.value=data?.task?.id||payload.id||selectedId.value; wizard.value=false; const effects=[]; if(!previous) effects.push('已建立新的选种与检查计划'); else{ if(JSON.stringify(previous.capacity)!==JSON.stringify(payload.capacity)) effects.push('容量或速度限制已更新'); if(JSON.stringify(previous.selection)!==JSON.stringify(payload.selection)) effects.push('选种硬过滤与评分入口已更新'); if(JSON.stringify(previous.deletion)!==JSON.stringify(payload.deletion)||JSON.stringify(previous.strategy)!==JSON.stringify(payload.strategy)) effects.push('删种安全策略已更新，风险扩大时重新进入观察') } changeNotice.value=effects.join('；')||'任务基础信息已更新'; await load(); notify(payload.id?'任务已更新':'任务已创建') }catch(err){ notify(err?.message||'保存任务失败','error') }finally{ saving.value=false } }
 function askAction(action){ confirmAction.value={...action,taskId:action.taskId||(action.code==='force_cleanup'?cleanupPreview.value?.task_id:selectedId.value)}; confirmOpen.value=true }
-async function executeAction(){ const action=confirmAction.value; if(!action)return; confirmOpen.value=false; if(action.code==='open_editor'){ confirmAction.value=null; editTask(); return } saving.value=true; try{ unwrapResponse(await props.api.post(`${base.value}/tasks/${action.taskId}/actions/${action.code}`,action.payload||{})); await load(); notify(action.success||'操作已提交'); if(action.code==='force_cleanup') startCleanupPolling() }catch(err){ notify(err?.message||'操作失败','error') }finally{ saving.value=false; confirmAction.value=null } }
+async function executeAction(){ const action=confirmAction.value; if(!action)return; confirmOpen.value=false; if(action.code==='open_editor'){ confirmAction.value=null; editTask(); return } if(action.code==='preview_cleanup'){confirmAction.value=null;await askForceCleanup(action.taskId);return} saving.value=true; try{ unwrapResponse(await props.api.post(`${base.value}/tasks/${action.taskId}/actions/${action.code}`,action.payload||{})); await load(); notify(action.success||'操作已提交'); if(action.code==='force_cleanup') startCleanupPolling() }catch(err){ notify(err?.message||'操作失败','error') }finally{ saving.value=false; confirmAction.value=null } }
 function topAction(code,label,confirm,success){ askAction({code,label,confirm,success,tone:'primary'}) }
 function openInsight(kind){ insightKind.value=kind; insightOpen.value=true }
 function askDeleteUnhealthyDownload(item){ insightOpen.value=false; deleteTarget.value={...item,taskId:selectedId.value}; deleteData.value=false; deleteConfirmOpen.value=true }
@@ -85,9 +86,9 @@ async function confirmDeleteUnhealthyDownload(){
   }catch(err){ deleteConfirmOpen.value=false; await load(); notify(err?.message||'移除下载失败','error') }
   finally{ saving.value=false; deleteTarget.value=null }
 }
-async function askForceCleanup(){
-  if(!task.value)return
-  const id=selectedId.value, revision=task.value.revision
+async function askForceCleanup(targetId=selectedId.value){
+  if(!task.value||targetId!==selectedId.value)return
+  const id=targetId, revision=task.value.revision
   try{
     const preview=unwrapResponse(await props.api.post(`${base.value}/tasks/${id}/cleanup/preview`,{revision,relax_limits:true}))
     if(id!==selectedId.value)return
@@ -134,6 +135,7 @@ onMounted(()=>{ load(); timer=window.setInterval(load,30000) }); onUnmounted(()=
           <section class="bf9__conclusion" :class="`tone-${summary.health?.level||'info'}`"><VIcon :icon="summary.health?.level==='success'?'mdi-check-circle':summary.health?.level==='error'?'mdi-alert-circle':'mdi-information'" size="36"/><div><span>当前结论</span><h2>{{ summary.health?.title||'等待首次检查' }}</h2><p>{{ summary.health?.message||'插件完成第一次检查后会告诉你下一步。' }}</p></div></section>
           <section v-if="summary.recommended_actions?.length" class="bf9__attention"><div><h3>需要处理</h3><p>这些操作都会先说明影响，再由你确认。</p></div><div><VBtn v-for="action in summary.recommended_actions" :key="action.code" :color="action.tone||'primary'" variant="tonal" @click="askAction(action)">{{ action.label }}</VBtn></div></section>
           <section class="bf9__capacity panel"><header><div><h3>容量</h3><p>{{ formatBytes(summary.capacity?.current_bytes||selected.seeding_size) }} / {{ summary.capacity?.limit_bytes?formatBytes(summary.capacity.limit_bytes):'未设置上限' }}</p></div><strong>{{ summary.capacity?.percent??0 }}%</strong></header><div class="capacity-track"><i class="target" :style="{left:`${strategy.capacity_target_percent||85}%`}"/><i class="trigger" :style="{left:`${strategy.capacity_trigger_percent||90}%`}"/><span :style="{width:`${Math.min(summary.capacity?.percent||0,100)}%`}"/></div><div class="capacity-labels"><span>目标 {{ strategy.capacity_target_percent||85 }}%</span><span>开始清理 {{ strategy.capacity_trigger_percent||90 }}%</span><span>上限 100%</span></div></section>
+          <TaskRecovery :capacity="summary.capacity||{}" :quota="summary.deletion?.quota||{}"/>
           <div class="bf9__summary-grid">
             <article class="panel bf9__drill-card" role="button" tabindex="0" @click="openInsight('selection')" @keydown.enter="openInsight('selection')"><VIcon icon="mdi-radar" color="primary"/><h3>选种</h3><strong>新增 {{ summary.selection?.added_count||0 }} 个</strong><p v-if="summary.selection?.source_checked">本轮看到 {{ summary.selection?.candidate_count||0 }} 个，过滤 {{ summary.selection?.filtered_count||0 }} 个。</p><p v-else>本轮尚未进入站点选种，先处理当前限制。</p><small v-if="summary.selection?.main_reason">主要原因：{{ summary.selection.main_reason }}</small><span class="bf9__drill-link">查看评分与未选原因 <VIcon icon="mdi-chevron-right" size="16"/></span></article>
             <article class="panel bf9__drill-card" role="button" tabindex="0" @click="openInsight('deletion')" @keydown.enter="openInsight('deletion')"><VIcon icon="mdi-shield-check" color="warning"/><h3>安全删种</h3><strong>{{ summary.deletion?.candidate_count||0 }} 个候选</strong><p>{{ summary.deletion?.message||'暂无删种计划。' }}</p><small>保护 {{ summary.deletion?.protected_count||0 }} 个 / {{ formatBytes(summary.deletion?.protected_bytes||0) }}</small><span class="bf9__drill-link">查看候选与保护原因 <VIcon icon="mdi-chevron-right" size="16"/></span></article>

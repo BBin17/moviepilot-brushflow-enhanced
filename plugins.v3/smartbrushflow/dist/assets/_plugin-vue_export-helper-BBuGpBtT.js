@@ -62,4 +62,4 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-export { _export_sfc as _, torrentProgress as a, formatDateTime as b, formatBytes as f, taskStateMeta as t, unwrapResponse as u };
+export { _export_sfc as _, formatDateTime as a, torrentProgress as b, formatBytes as f, taskStateMeta as t, unwrapResponse as u };

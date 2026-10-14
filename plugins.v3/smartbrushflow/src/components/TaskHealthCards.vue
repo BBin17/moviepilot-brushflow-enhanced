@@ -24,7 +24,7 @@ defineEmits(['select', 'create'])
         :color="(task.strategy?.ui_summary?.capacity?.percent || 0) > 100 ? 'error' : healthTone(task.strategy?.ui_summary?.health?.level)" height="5" rounded />
       <div class="task-health-card__meta">
         <span>24h 上传 {{ formatBytes(task.strategy?.ui_summary?.performance?.uploaded_bytes_24h||0) }}</span>
-        <span>待处理 {{ task.strategy?.ui_summary?.download?.issue_count||0 }}</span>
+        <span>下载异常 {{ task.strategy?.ui_summary?.download?.issue_count||0 }}</span>
       </div>
       <p>{{ task.strategy?.ui_summary?.health?.message || '首次检查后显示下一步。' }}</p>
     </button>

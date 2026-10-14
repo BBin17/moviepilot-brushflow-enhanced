@@ -54,8 +54,9 @@ from .presentation import build_health_summary, deletion_quota_message
 from .repository import TaskRepository
 from .health_service import DownloadHealthService
 from .performance import performance_rows, summarize_performance
+from .recovery import recovery_summary
 from .operations import OperationError, TaskService
-from .deletion_service import DeletionService
+from .deletion_service import DeletionService, policy_for_document
 from .downloaders import DownloaderAdapter, DownloaderUnavailable
 from .manual_download_deletion import (
     ManualDownloadDeletionService,
@@ -2119,6 +2120,12 @@ class SmartBrushFlow(_PluginBase):
         )
         false_positive_count = sum(1 for row in candidate_rows if row.get("recovered"))
         deletion_reason_codes = list(deletion_plan.get("reason_codes") or [])
+        recovery_details = recovery_summary(
+            policy=policy_for_document(document), active_count=sum(not row.get("deleted") for row in torrents.values()),
+            capacity=capacity or current_size, current=current_size, target=capacity_target or current_size,
+            ledger=self._get_task_data(task_id, "smart_deletions") or [],
+            candidates=[row for row in evaluated_rows if row.get("action") == "candidate"], now=now,
+        ) if document else {}
         planned_items = deletion_plan.get("items") or deletion_plan.get("selected") or []
         planned_count = len(planned_items)
         planned_bytes = (
@@ -2159,7 +2166,7 @@ class SmartBrushFlow(_PluginBase):
             }
         elif eligible_count and any(
             code in deletion_reason_codes
-            for code in ("byte_cap", "daily_count_cap", "run_count_cap")
+            for code in ("byte_cap", "daily_count_cap", "run_count_cap", "run_byte_cap", "daily_byte_cap", "candidate_exceeds_remaining_bytes")
         ):
             quota_message = deletion_quota_message(deletion_reason_codes)
             readiness = {
@@ -2239,6 +2246,11 @@ class SmartBrushFlow(_PluginBase):
         )
         health = presentation["health"]
         recommended_actions = presentation["recommended_actions"]
+        if mode == "active" and task.enabled and eligible_count and recovery_active:
+            recommended_actions.append({
+                "code": "preview_cleanup", "label": "预览空间恢复清理", "tone": "warning", "enabled": True,
+                "confirm": "只生成名单，不会直接删除。手动清理可放宽本次额度，但不会绕过硬安全线；执行前还需确认名单和是否删除数据。",
+            })
         download_issue_count = presentation["download_issue_count"]
         manual_delete_pending = {
             str(row.get("hash"))
@@ -2277,6 +2289,7 @@ class SmartBrushFlow(_PluginBase):
                 "trigger_bytes": capacity * task.smart_capacity_trigger_percent / 100 if capacity else None,
                 "target_bytes": capacity_target,
                 "recovery_active": recovery_active,
+                "debt_bytes": max(current_size - (capacity_target or current_size), 0),
             },
             "selection": selection_summary,
             "deletion": {
@@ -2286,6 +2299,7 @@ class SmartBrushFlow(_PluginBase):
                 "protected_count": protected_count,
                 "protected_bytes": protected_bytes,
                 "message": readiness.get("message"),
+                "quota": recovery_details,
             },
             "download": {
                 "state": "attention" if download_issue_count else "healthy",
