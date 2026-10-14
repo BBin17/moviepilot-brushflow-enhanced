@@ -865,7 +865,7 @@ return (_ctx, _cache) => {
                             min: "24",
                             max: "720",
                             label: "连续零上传淘汰时间（小时）",
-                            hint: "默认72小时；必须有完整真实观测且实际保种也达到该时长，仍受H&R、活动连接和数量/容量限额保护",
+                            hint: "默认72小时；必须有完整真实观测且实际保种也达到该时长，站点最低保种、H&R和活动连接始终优先保护；不设释放GB额度",
                             "persistent-hint": ""
                           }, null, 8, ["modelValue"]))
                         : _createCommentVNode$4("", true),
@@ -1319,7 +1319,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-5f2a7136"]]);
+const TaskWizardV9 = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-6ecb6f0a"]]);
 
 const {createElementVNode:_createElementVNode$3,unref:_unref$3,toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$3,resolveComponent:_resolveComponent$3,createVNode:_createVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3} = await importShared('vue');
 
@@ -1547,7 +1547,7 @@ return (_ctx, _cache) => {
           _createElementVNode$2("strong", null, "最近新增 " + _toDisplayString$2(__props.summary.selection?.added_count||0) + " 个", 1)
         ]),
         _createElementVNode$2("p", null, _toDisplayString$2(__props.summary.selection?.source_checked?`看到${__props.summary.selection.candidate_count||0}个候选，过滤${__props.summary.selection.filtered_count||0}个。`:'最近一轮尚未进入站点选种。'), 1),
-        _createElementVNode$2("small", null, _toDisplayString$2(__props.summary.selection?.main_reason||'下一轮继续按需求、竞争和历史收益选种。'), 1)
+        _createElementVNode$2("small", null, _toDisplayString$2(__props.summary.selection?.version_note||__props.summary.selection?.main_reason||'下一轮继续按需求、竞争和历史收益选种。'), 1)
       ]),
       _createElementVNode$2("button", {
         class: "support-box",
@@ -1579,8 +1579,8 @@ return (_ctx, _cache) => {
                   _createElementVNode$2("span", null, "样本 " + _toDisplayString$2(__props.strategy.learning_sample_count||0), 1),
                   _createElementVNode$2("span", null, "误判率 " + _toDisplayString$2(((__props.strategy.false_positive_rate||0)*100).toFixed(1)) + "%", 1)
                 ]),
-                _cache[16] || (_cache[16] = _createElementVNode$2("p", null, "近期单位容量上传收益决定保留价值；连续72小时零上传且满足实际保种时长的种子主动淘汰。每个种子在提交删除前重新检查安全数据，审计先于删除。", -1)),
-                _cache[17] || (_cache[17] = _createElementVNode$2("p", null, "为避免下载器请求拥堵，每次检查逐个处理最多5个合格种子，剩余在下次检查继续；这不是每日数量或释放GB限额。", -1))
+                _createElementVNode$2("p", null, "近期单位容量上传收益决定保留价值；连续" + _toDisplayString$2(__props.summary.deletion?.idle_zero_upload_hours||'设定时长') + "小时零上传且满足实际保种时长的种子主动淘汰。每个种子在提交删除前重新检查安全数据，审计先于删除。", 1),
+                _cache[16] || (_cache[16] = _createElementVNode$2("p", null, "为避免下载器请求拥堵，每次检查逐个处理最多5个合格种子，剩余在下次检查继续；这不是每日数量或释放GB限额。", -1))
               ]),
               _: 1
             })
@@ -1595,7 +1595,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const TaskStatusView = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-f14c16ea"]]);
+const TaskStatusView = /*#__PURE__*/_export_sfc(_sfc_main$2, [['__scopeId',"data-v-3ceabe9f"]]);
 
 const {createElementVNode:_createElementVNode$1,toDisplayString:_toDisplayString$1,createTextVNode:_createTextVNode$1,resolveComponent:_resolveComponent$1,withCtx:_withCtx$1,createVNode:_createVNode$1,openBlock:_openBlock$1,createBlock:_createBlock$1,createCommentVNode:_createCommentVNode$1,renderList:_renderList$1,Fragment:_Fragment$1,createElementBlock:_createElementBlock$1,unref:_unref$1,normalizeClass:_normalizeClass$1} = await importShared('vue');
 

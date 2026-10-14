@@ -134,7 +134,7 @@ function confirmSave() {
             <div><h3>如何安全释放空间？</h3><p>新启用或风险扩大后先观察，不会立即删除。</p></div>
             <VSwitch v-model="draft.deletion.enabled" color="error" label="启用统一智能删种"/>
             <VSwitch :model-value="draft.deletion.idle_zero_upload_hours!==null" label="主动淘汰长期零上传种子（不等空间满）" @update:model-value="draft.deletion.idle_zero_upload_hours=$event?72:null"/>
-            <VTextField v-if="draft.deletion.idle_zero_upload_hours!==null" v-model.number="draft.deletion.idle_zero_upload_hours" type="number" min="24" max="720" label="连续零上传淘汰时间（小时）" hint="默认72小时；必须有完整真实观测且实际保种也达到该时长，仍受H&R、活动连接和数量/容量限额保护" persistent-hint/>
+            <VTextField v-if="draft.deletion.idle_zero_upload_hours!==null" v-model.number="draft.deletion.idle_zero_upload_hours" type="number" min="24" max="720" label="连续零上传淘汰时间（小时）" hint="默认72小时；必须有完整真实观测且实际保种也达到该时长，站点最低保种、H&R和活动连接始终优先保护；不设释放GB额度" persistent-hint/>
             <VAlert v-if="draft.deletion.enabled" type="info" variant="tonal">前48小时只记录候选，不会实际删除；未完成、H&R、未到最低保种、正在上传或有活动连接的种子保持保护；Tracker单独报下载者时等待实际上传验证。</VAlert>
             <VRow><VCol cols="12" md="6"><VTextField v-model.number="draft.deletion.min_seed_hours" type="number" min="1" label="站点最低保种时间（小时）"/></VCol><VCol cols="12" md="6"><VTextField v-model="draft.deletion.exclude_tags" label="永不删除的标签"/></VCol></VRow>
             <div class="switches"><VSwitch v-model="draft.deletion.delete_data" color="error" label="清理时同时删除下载数据" hide-details/><VSwitch v-model="draft.deletion.invalid_tracker_cleanup" label="清理Tracker明确拒绝的任务（保留数据）" hide-details/></div>

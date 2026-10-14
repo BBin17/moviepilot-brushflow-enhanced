@@ -114,7 +114,7 @@ def test_task_status_exposes_live_quota_and_preview_not_delete(monkeypatch):
     data = {
         "torrents":{"a":{"size":703*GIB, "title":"seed", "uploaded":0}},
         "capacity_recovery":{"active":True},
-        "current_deletion_plan":{"evaluated":[{"hash":"a","size":703*GIB,"action":"candidate"}],
+        "current_deletion_plan":{"engine_mode":"performance", "evaluated":[{"hash":"a","size":703*GIB,"action":"candidate"}],
                                  "reason_codes":["daily_count_cap"]},
         "smart_deletions":[{"at":NOW-100,"size":GIB,"status":"confirmed_removed"}],
     }

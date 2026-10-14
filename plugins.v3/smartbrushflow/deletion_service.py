@@ -486,6 +486,7 @@ class DeletionService:
                 "seeding_time": number(observation.get("seeding_time")),
             })
         self.write("current_deletion_plan", {
+            "engine_mode": "performance",
             "at": now,
             "aggregate": plan["aggregate"],
             "items": plan["items"],
@@ -495,7 +496,7 @@ class DeletionService:
             "pressure": plan["selection"].pressure,
             "estimated_freed_bytes": plan["selection"].estimated_freed_bytes,
         })
-        self.audit({"kind": "deletion", "pressure": plan["selection"].pressure, "aggregate": plan["aggregate"],
+        self.audit({"kind": "deletion", "engine_mode": "performance", "pressure": plan["selection"].pressure, "aggregate": plan["aggregate"],
                     "selected": plan["items"], "evaluated": evaluated_rows,
                     "reason_codes": list(plan["selection"].reason_codes),
                     "estimated_freed_bytes": plan["selection"].estimated_freed_bytes,

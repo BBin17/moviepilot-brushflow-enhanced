@@ -2040,10 +2040,10 @@ class SmartBrushFlow(_PluginBase):
         if not isinstance(audit, list):
             audit = []
         current_plan = self._get_task_data(task_id, "current_deletion_plan") or {}
-        if not isinstance(current_plan, dict):
+        if not isinstance(current_plan, dict) or current_plan.get("engine_mode") != "performance":
             current_plan = {}
         latest_selection = next((row for row in reversed(audit) if row.get("kind") == "selection"), None)
-        latest_deletion = next((row for row in reversed(audit) if row.get("kind") == "deletion"), None)
+        latest_deletion = next((row for row in reversed(audit) if row.get("kind") == "deletion" and row.get("engine_mode") == "performance"), None)
         deletion_plan = current_plan or latest_deletion or {}
         torrents = self._get_task_data(task_id, "torrents") or {}
         current_size = self.__calculate_seeding_torrents_size(torrents)
@@ -2082,7 +2082,7 @@ class SmartBrushFlow(_PluginBase):
         protected_bytes_by_hash: Dict[str, float] = {}
         eligible_count = 0
         eligible_bytes = 0.0
-        evaluated_rows = deletion_plan.get("evaluated") or (latest_deletion or {}).get("evaluated", [])
+        evaluated_rows = deletion_plan.get("evaluated") or []
         for row in evaluated_rows:
             torrent_hash = str(row.get("hash") or "")
             torrent_size = float(row.get("size") or torrent_sizes.get(torrent_hash) or 0)
@@ -2138,6 +2138,8 @@ class SmartBrushFlow(_PluginBase):
                 "state": "capacity_unset",
                 "message": "未设置任务容量，智能删种不会因空间压力自动清理。",
             }
+        elif not deletion_plan:
+            readiness = {"state": "pending_evaluation", "message": "新表现规则尚未完成首次检查；现有种子暂时保留，等待自动检查。"}
         elif not eligible_count and not planned_count:
             readiness = {
                 "state": "at_target",
@@ -2190,6 +2192,7 @@ class SmartBrushFlow(_PluginBase):
         runs = self._get_task_data(task_id, "runs") or []
         latest_brush = next((row for row in runs if row.get("kind") == "brush"), {})
         selection_summary = {
+            "version_note": "这是升级前的选种结果；新规则已取消容量回落等待，下一轮会更新。" if latest_brush and latest_brush.get("engine_mode") != "performance" else None,
             "source_checked": bool(latest_brush.get("source_count") or latest_brush.get("result") in {"completed", "no_candidates"}),
             "candidate_count": int(latest_brush.get("source_count") or 0),
             "added_count": int(latest_brush.get("added_count") or 0),
@@ -2229,6 +2232,8 @@ class SmartBrushFlow(_PluginBase):
             task_enabled=task.enabled,
         )
         health = presentation["health"]
+        if health["status"] == "healthy" and mode == "active" and task.enabled and not deletion_plan:
+            health = {"level": "info", "title": "等待首次表现检查", "status": "pending_evaluation", "message": readiness["message"]}
         if health["status"] == "healthy" and mode == "active" and task.enabled and eligible_count:
             health = {"level": "warning", "title": "低收益种子准备淘汰", "status": "performance_pruning", "message": readiness["message"]}
         recommended_actions = presentation["recommended_actions"]
@@ -2376,6 +2381,7 @@ class SmartBrushFlow(_PluginBase):
 
     def _run_brush(self, task: BrushTaskConfig, report: dict) -> None:
         """在已绑定任务上下文中执行刷流核心流程"""
+        report["engine_mode"] = "performance"
         if not self._validate_task_reference(task) or not self.downloader:
             report["result"] = "downloader_unavailable"
             return

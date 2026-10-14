@@ -153,3 +153,27 @@ def test_migration_preserves_closed_tasks_and_safety_with_idempotent_backup():
     assert rows[0]["deletion"]["min_seed_hours"] == 168
     assert rows[0]["deletion"]["delete_data"] is False
     assert migrate_performance_policy(rows,backups,now=NOW+100) == (rows,backups,False)
+
+
+def test_legacy_capacity_plan_is_not_presented_as_new_performance_evidence(monkeypatch):
+    import sys
+    from app.plugins.smartbrushflow import SmartBrushFlow, BrushTaskConfig
+
+    worker, _ = service()
+    worker.write("current_deletion_plan", {"evaluated":[{"hash":"idle","action":"candidate","size":210*GIB}],
+                                           "reason_codes":["daily_count_cap"]})
+    worker.write("runs", [{"kind":"brush","reason_counts":{"空间恢复中，需回落至680GB":1}}])
+    plugin = SmartBrushFlow()
+    plugin._task_documents = {"task":worker.document}
+    plugin._task_configs = {"task":BrushTaskConfig(worker.document.to_runtime())}
+    plugin._runtime = {}
+    monkeypatch.setattr(plugin,"_get_task_data",lambda task_id,key:worker.read(key))
+    monkeypatch.setattr(sys.modules["app.plugins.smartbrushflow"].time,"time",lambda:NOW)
+    summary = plugin._build_strategy_status("task")["ui_summary"]
+    assert summary["deletion"]["candidate_count"] == 0
+    assert summary["health"]["status"] == "pending_evaluation"
+    assert summary["selection"]["version_note"]
+    worker.sample_and_plan()
+    summary = plugin._build_strategy_status("task")["ui_summary"]
+    assert summary["deletion"]["idle_candidate_count"] == 1
+    assert summary["health"]["status"] == "performance_pruning"

@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import { S as SmartBrushFlow } from './SmartBrushFlow-ZmCUancz.js';
+import { S as SmartBrushFlow } from './SmartBrushFlow-ZmoiY-3A.js';
 
 const {openBlock:_openBlock,createBlock:_createBlock} = await importShared('vue');
 
