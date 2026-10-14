@@ -1,6 +1,6 @@
 <script setup>
 import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
-import TaskHealthCards from './TaskHealthCards.vue'
+import TaskNavigator from './TaskNavigator.vue'
 import TaskWizardV9 from './TaskWizardV9.vue'
 import TaskStatusView from './TaskStatusView.vue'
 import TaskTorrentTable from './TaskTorrentTable.vue'
@@ -121,7 +121,7 @@ onMounted(()=>{ load(); timer=window.setInterval(load,30000) }); onUnmounted(()=
     <header class="bf9__header"><div><div class="bf9__brand"><VIcon icon="mdi-sync-circle" color="primary" size="34"/><div><h1>智能刷流</h1><p>看结论、处理异常，其余交给统一策略</p></div></div></div><div class="bf9__header-actions"><VBtn variant="text" prepend-icon="mdi-refresh" :loading="loading" @click="load">刷新</VBtn><VBtn variant="text" prepend-icon="mdi-tune" @click="openSettings">工具与设置</VBtn><VBtn color="primary" variant="tonal" prepend-icon="mdi-plus" @click="createTask">新建任务</VBtn><VBtn v-if="showClose" icon="mdi-close" variant="text" @click="emit('close')"/></div></header>
     <VAlert v-if="error" type="error" variant="tonal" closable @click:close="error=''">{{ error }}</VAlert>
     <VAlert v-if="!status.enabled" type="warning" variant="tonal">插件当前未启用；任务和历史可以查看，但不会自动运行。</VAlert>
-    <TaskHealthCards :tasks="tasks" :selected-id="selectedId" @select="selectTask" @create="createTask"/>
+    <TaskNavigator :tasks="tasks" :selected-id="selectedId" @select="selectTask"/>
     <div v-if="!tasks.length&&!loading" class="bf9__empty"><VIcon icon="mdi-radar" size="52"/><h2>还没有刷流任务</h2><p>四步完成站点、容量、选种和安全规则。</p><VBtn color="primary" @click="createTask">创建第一个任务</VBtn></div>
     <template v-if="selected">
       <section class="bf9__taskbar"><div><h2>{{ selected.name }}</h2><p>{{ selected.site_name }} · 最近 {{ selected.last_run?formatDateTime(selected.last_run.started_at):'尚未运行' }} · 下次 {{ selected.next_run_at?formatDateTime(selected.next_run_at):'暂无计划' }}</p></div><div><VBtn variant="tonal" prepend-icon="mdi-radar" :disabled="!task||detailLoading||saving" @click="topAction('run_selection','立即选种','将立即访问站点并可能添加符合条件的下载，确认继续吗？','选种任务已提交')">立即选种</VBtn><VBtn variant="tonal" prepend-icon="mdi-progress-check" :disabled="!task||detailLoading||saving" @click="topAction('run_check','检查种子','将立即检查下载、上传和删种候选，确认继续吗？','种子检查已提交')">检查种子</VBtn><VBtn variant="text" prepend-icon="mdi-pencil" :disabled="!task||detailLoading||saving" @click="editTask">编辑任务</VBtn><VBtn variant="text" :prepend-icon="selected.enabled?'mdi-pause':'mdi-play'" :disabled="!task||detailLoading||saving" @click="topAction(selected.enabled?'pause_task':'resume_task',selected.enabled?'暂停任务':'恢复任务',selected.enabled?'暂停后将停止自动选种和检查，确认吗？':'恢复后将重新注册自动调度，确认吗？',selected.enabled?'任务已暂停':'任务已恢复')">{{ selected.enabled?'暂停':'恢复' }}</VBtn></div></section>

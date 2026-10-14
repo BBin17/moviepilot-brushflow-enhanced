@@ -96,97 +96,212 @@ function healthTone(level) {
   return ({ error: 'error', warning: 'warning', info: 'info', success: 'success' })[level] || 'secondary'
 }
 
-const {renderList:_renderList$4,Fragment:_Fragment$4,openBlock:_openBlock$5,createElementBlock:_createElementBlock$5,toDisplayString:_toDisplayString$5,createElementVNode:_createElementVNode$5,unref:_unref$5,createTextVNode:_createTextVNode$5,resolveComponent:_resolveComponent$5,withCtx:_withCtx$4,createVNode:_createVNode$5,normalizeClass:_normalizeClass$3,createCommentVNode:_createCommentVNode$5} = await importShared('vue');
+/** Compact task navigation: searching and switching never modify task settings. */
+function taskNavigationItems(tasks = []) {
+  return tasks.filter(task => task?.id).map(task => {
+    const summary = task.strategy?.ui_summary || {};
+    const name = String(task.name || task.site_name || '未命名任务');
+    const site = String(task.site_name || '站点未设置');
+    const downloader = String(task.downloader || '');
+    return {
+      id: String(task.id), name, site, downloader,
+      displayTitle: site === name ? name : `${name} · ${site}`,
+      searchText: [name, site, downloader].join(' '),
+      health: summary.health || {},
+      needsAttention: ['error', 'warning'].includes(summary.health?.level) || Number(summary.download?.issue_count || 0) > 0,
+      enabled: Boolean(task.enabled),
+      size: task.seeding_size,
+      uploaded: summary.performance?.uploaded_bytes_24h ?? null,
+      partialUpload: summary.performance?.observation_complete === false,
+    }
+  })
+}
+
+function filterTaskNavigation(value, query, item) {
+  const text = String(item?.raw?.searchText || value || '').toLocaleLowerCase();
+  return text.includes(String(query || '').trim().toLocaleLowerCase())
+}
+
+function taskNavigationSummary(items = []) {
+  return {
+    total: items.length,
+    enabled: items.filter(item => item.enabled).length,
+    attention: items.filter(item => item.needsAttention).length,
+  }
+}
+
+function adjacentTaskId(items, selectedId, direction) {
+  const index = items.findIndex(item => item.id === selectedId);
+  const next = index + direction;
+  return index >= 0 && next >= 0 && next < items.length ? items[next].id : null
+}
+
+function validTaskSelection(items, selectedId, nextId) {
+  return typeof nextId === 'string' && nextId !== selectedId && items.some(item => item.id === nextId)
+}
+
+const {unref:_unref$5,toDisplayString:_toDisplayString$5,createElementVNode:_createElementVNode$5,createTextVNode:_createTextVNode$5,resolveComponent:_resolveComponent$5,withCtx:_withCtx$4,createVNode:_createVNode$5,Fragment:_Fragment$4,openBlock:_openBlock$5,createElementBlock:_createElementBlock$5,createCommentVNode:_createCommentVNode$5,mergeProps:_mergeProps,createBlock:_createBlock$4,normalizeClass:_normalizeClass$3} = await importShared('vue');
 
 
 const _hoisted_1$5 = {
-  class: "task-health-grid",
-  "aria-label": "刷流任务健康状态"
+  key: 0,
+  class: "task-navigator",
+  "aria-label": "刷流任务切换"
 };
-const _hoisted_2$5 = ["onClick"];
-const _hoisted_3$4 = { class: "task-health-card__top" };
-const _hoisted_4$4 = { class: "task-health-card__capacity" };
-const _hoisted_5$4 = { class: "task-health-card__meta" };
+const _hoisted_2$5 = { class: "task-navigator__picker" };
+const _hoisted_3$4 = { class: "task-navigator__option-title" };
+const _hoisted_4$4 = ["title"];
+const _hoisted_5$4 = { class: "task-navigator__option-meta" };
+const _hoisted_6$4 = {
+  key: 0,
+  class: "task-navigator__arrows"
+};
+const _hoisted_7$3 = {
+  class: "task-navigator__counts",
+  "aria-label": "全部任务概况"
+};
+
+const {computed: computed$2} = await importShared('vue');
 
 
 const _sfc_main$5 = {
-  __name: 'TaskHealthCards',
+  __name: 'TaskNavigator',
   props: { tasks: { type: Array, default: () => [] }, selectedId: { type: String, default: '' } },
-  emits: ['select', 'create'],
-  setup(__props) {
+  emits: ['select'],
+  setup(__props, { emit: __emit }) {
 
-
-
+const props = __props;
+const emit = __emit;
+const items = computed$2(() => taskNavigationItems(props.tasks));
+const counts = computed$2(() => taskNavigationSummary(items.value));
+const previous = computed$2(() => adjacentTaskId(items.value, props.selectedId, -1));
+const next = computed$2(() => adjacentTaskId(items.value, props.selectedId, 1));
+function select(id) {
+  if (validTaskSelection(items.value, props.selectedId, id)) emit('select', id);
+}
 
 return (_ctx, _cache) => {
   const _component_VChip = _resolveComponent$5("VChip");
-  const _component_VProgressLinear = _resolveComponent$5("VProgressLinear");
+  const _component_VListItem = _resolveComponent$5("VListItem");
+  const _component_VAutocomplete = _resolveComponent$5("VAutocomplete");
+  const _component_VBtn = _resolveComponent$5("VBtn");
   const _component_VIcon = _resolveComponent$5("VIcon");
 
-  return (_openBlock$5(), _createElementBlock$5("section", _hoisted_1$5, [
-    (_openBlock$5(true), _createElementBlock$5(_Fragment$4, null, _renderList$4(__props.tasks, (task) => {
-      return (_openBlock$5(), _createElementBlock$5("button", {
-        key: task.id,
-        type: "button",
-        class: _normalizeClass$3(["task-health-card", { selected: task.id === __props.selectedId }]),
-        onClick: $event => (_ctx.$emit('select', task.id))
-      }, [
-        _createElementVNode$5("div", _hoisted_3$4, [
-          _createElementVNode$5("div", null, [
-            _createElementVNode$5("strong", null, _toDisplayString$5(task.name), 1),
-            _createElementVNode$5("span", null, _toDisplayString$5(task.site_name) + " · " + _toDisplayString$5(task.downloader), 1)
-          ]),
-          _createVNode$5(_component_VChip, {
-            size: "x-small",
-            color: _unref$5(healthTone)(task.strategy?.ui_summary?.health?.level),
-            variant: "tonal"
+  return (items.value.length)
+    ? (_openBlock$5(), _createElementBlock$5("section", _hoisted_1$5, [
+        _createElementVNode$5("div", _hoisted_2$5, [
+          _createVNode$5(_component_VAutocomplete, {
+            "model-value": __props.selectedId,
+            items: items.value,
+            "item-title": "displayTitle",
+            "item-value": "id",
+            "custom-filter": _unref$5(filterTaskNavigation),
+            label: "切换任务 · 可搜索站点或名称",
+            "aria-label": "切换刷流任务",
+            variant: "outlined",
+            density: "compact",
+            "hide-details": "",
+            "menu-props": { maxHeight: 360 },
+            "no-data-text": "没有匹配的任务，试试站点或下载器名称",
+            "onUpdate:modelValue": select
           }, {
-            default: _withCtx$4(() => [
-              _createTextVNode$5(_toDisplayString$5(task.strategy?.ui_summary?.health?.title || '等待检查'), 1)
+            item: _withCtx$4(({ props: optionProps, item }) => [
+              _createVNode$5(_component_VListItem, _mergeProps(optionProps, {
+                role: "option",
+                "aria-selected": item.value === __props.selectedId,
+                class: "task-navigator__option",
+                title: item.raw.name,
+                subtitle: [item.raw.site, item.raw.downloader].filter(Boolean).join(' · ')
+              }), {
+                title: _withCtx$4(() => [
+                  _createElementVNode$5("div", _hoisted_3$4, [
+                    _createElementVNode$5("strong", {
+                      title: item.raw.name
+                    }, _toDisplayString$5(item.raw.name), 9, _hoisted_4$4),
+                    _createVNode$5(_component_VChip, {
+                      size: "x-small",
+                      color: _unref$5(healthTone)(item.raw.health.level),
+                      variant: "tonal"
+                    }, {
+                      default: _withCtx$4(() => [
+                        _createTextVNode$5(_toDisplayString$5(item.raw.health.title || '等待检查'), 1)
+                      ]),
+                      _: 2
+                    }, 1032, ["color"])
+                  ])
+                ]),
+                subtitle: _withCtx$4(() => [
+                  _createElementVNode$5("div", _hoisted_5$4, [
+                    _createElementVNode$5("span", null, [
+                      _createTextVNode$5(_toDisplayString$5(item.raw.site), 1),
+                      (item.raw.downloader)
+                        ? (_openBlock$5(), _createElementBlock$5(_Fragment$4, { key: 0 }, [
+                            _createTextVNode$5(" · " + _toDisplayString$5(item.raw.downloader), 1)
+                          ], 64))
+                        : _createCommentVNode$5("", true)
+                    ]),
+                    _createElementVNode$5("span", null, _toDisplayString$5(_unref$5(formatBytes)(item.raw.size)) + " · 24h上传 " + _toDisplayString$5(item.raw.uploaded === null ? '待统计' : _unref$5(formatBytes)(item.raw.uploaded)) + _toDisplayString$5(item.raw.partialUpload ? '（部分）' : ''), 1)
+                  ])
+                ]),
+                _: 2
+              }, 1040, ["aria-selected", "title", "subtitle"])
             ]),
-            _: 2
-          }, 1032, ["color"])
+            _: 1
+          }, 8, ["model-value", "items", "custom-filter"]),
+          (items.value.length > 1)
+            ? (_openBlock$5(), _createElementBlock$5("div", _hoisted_6$4, [
+                _createVNode$5(_component_VBtn, {
+                  icon: "mdi-chevron-left",
+                  "aria-label": "上一个任务",
+                  title: "上一个任务",
+                  size: "small",
+                  variant: "text",
+                  disabled: !previous.value,
+                  onClick: _cache[0] || (_cache[0] = $event => (select(previous.value)))
+                }, null, 8, ["disabled"]),
+                _createVNode$5(_component_VBtn, {
+                  icon: "mdi-chevron-right",
+                  "aria-label": "下一个任务",
+                  title: "下一个任务",
+                  size: "small",
+                  variant: "text",
+                  disabled: !next.value,
+                  onClick: _cache[1] || (_cache[1] = $event => (select(next.value)))
+                }, null, 8, ["disabled"])
+              ]))
+            : _createCommentVNode$5("", true)
         ]),
-        _createElementVNode$5("div", _hoisted_4$4, [
-          _createElementVNode$5("span", null, _toDisplayString$5(_unref$5(formatBytes)(task.seeding_size)), 1),
-          _createElementVNode$5("small", null, _toDisplayString$5(task.strategy?.ui_summary?.capacity?.limit_bytes ? `上限 ${_unref$5(formatBytes)(task.strategy.ui_summary.capacity.limit_bytes)}` : '容量未设置'), 1)
-        ]),
-        _createVNode$5(_component_VProgressLinear, {
-          "model-value": Math.min(task.strategy?.ui_summary?.capacity?.percent || 0, 100),
-          color: (task.strategy?.ui_summary?.capacity?.percent || 0) > 100 ? 'error' : _unref$5(healthTone)(task.strategy?.ui_summary?.health?.level),
-          height: "5",
-          rounded: ""
-        }, null, 8, ["model-value", "color"]),
-        _createElementVNode$5("div", _hoisted_5$4, [
-          _createElementVNode$5("span", null, "24h 上传 " + _toDisplayString$5(_unref$5(formatBytes)(task.strategy?.ui_summary?.performance?.uploaded_bytes_24h||0)), 1),
-          _createElementVNode$5("span", null, "下载异常 " + _toDisplayString$5(task.strategy?.ui_summary?.download?.issue_count||0), 1)
-        ]),
-        _createElementVNode$5("p", null, _toDisplayString$5(task.strategy?.ui_summary?.health?.message || '首次检查后显示下一步。'), 1)
-      ], 10, _hoisted_2$5))
-    }), 128)),
-    (!__props.tasks.length)
-      ? (_openBlock$5(), _createElementBlock$5("button", {
-          key: 0,
-          type: "button",
-          class: "task-health-card task-health-card--create",
-          onClick: _cache[0] || (_cache[0] = $event => (_ctx.$emit('create')))
-        }, [
-          _createVNode$5(_component_VIcon, {
-            icon: "mdi-plus-circle-outline",
-            size: "24"
-          }),
-          _cache[1] || (_cache[1] = _createElementVNode$5("span", null, [
-            _createElementVNode$5("strong", null, "新建刷流任务"),
-            _createElementVNode$5("small", null, "按四步向导完成设置")
-          ], -1))
-        ]))
-      : _createCommentVNode$5("", true)
-  ]))
+        _createElementVNode$5("div", _hoisted_7$3, [
+          _createElementVNode$5("span", null, [
+            _cache[2] || (_cache[2] = _createTextVNode$5("共 ", -1)),
+            _createElementVNode$5("strong", null, _toDisplayString$5(counts.value.total), 1),
+            _cache[3] || (_cache[3] = _createTextVNode$5(" 个任务", -1))
+          ]),
+          _createElementVNode$5("span", null, [
+            _cache[4] || (_cache[4] = _createTextVNode$5("启用 ", -1)),
+            _createElementVNode$5("strong", null, _toDisplayString$5(counts.value.enabled), 1)
+          ]),
+          _createElementVNode$5("span", {
+            class: _normalizeClass$3({ 'task-navigator__attention': counts.value.attention })
+          }, [
+            (counts.value.attention)
+              ? (_openBlock$5(), _createBlock$4(_component_VIcon, {
+                  key: 0,
+                  icon: "mdi-alert-circle-outline",
+                  size: "16"
+                }))
+              : _createCommentVNode$5("", true),
+            _cache[5] || (_cache[5] = _createTextVNode$5("需关注 ", -1)),
+            _createElementVNode$5("strong", null, _toDisplayString$5(counts.value.attention), 1)
+          ], 2)
+        ])
+      ]))
+    : _createCommentVNode$5("", true)
 }
 }
 
 };
-const TaskHealthCards = /*#__PURE__*/_export_sfc(_sfc_main$5, [['__scopeId',"data-v-a6058572"]]);
+const TaskNavigator = /*#__PURE__*/_export_sfc(_sfc_main$5, [['__scopeId',"data-v-f206368e"]]);
 
 const {unref:_unref$4,toDisplayString:_toDisplayString$4,createTextVNode:_createTextVNode$4,resolveComponent:_resolveComponent$4,withCtx:_withCtx$3,createVNode:_createVNode$4,renderList:_renderList$3,Fragment:_Fragment$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$4,createElementVNode:_createElementVNode$4,normalizeClass:_normalizeClass$2,createBlock:_createBlock$3,createCommentVNode:_createCommentVNode$4} = await importShared('vue');
 
@@ -2070,11 +2185,10 @@ return (_ctx, _cache) => {
           _: 1
         }))
       : _createCommentVNode("", true),
-    _createVNode(TaskHealthCards, {
+    _createVNode(TaskNavigator, {
       tasks: tasks.value,
       "selected-id": selectedId.value,
-      onSelect: selectTask,
-      onCreate: createTask
+      onSelect: selectTask
     }, null, 8, ["tasks", "selected-id"]),
     (!tasks.value.length&&!loading.value)
       ? (_openBlock(), _createElementBlock("div", _hoisted_5, [
@@ -2943,6 +3057,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const SmartBrushFlow = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8bdb9612"]]);
+const SmartBrushFlow = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5af55dbc"]]);
 
 export { SmartBrushFlow as S };
