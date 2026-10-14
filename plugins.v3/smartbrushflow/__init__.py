@@ -928,7 +928,7 @@ class SmartBrushFlow(_PluginBase):
         page: int = Query(1, ge=1),
         page_size: int = Query(50, ge=10, le=200),
         sort: str = Query("newest", pattern="^(newest|yield|size|seed_time)$"),
-        filter: str = Query("all", pattern="^(all|zero_upload|min_seed_met|download_issues)$"),
+        filter: str = Query("all", pattern="^(all|zero_upload|min_seed_met|download_issues|protected|candidates)$"),
     ) -> schemas.Response:
         if task_id not in self._task_configs:
             return schemas.Response(success=False, message="刷流任务不存在")
@@ -2001,12 +2001,29 @@ class SmartBrushFlow(_PluginBase):
                                    self._get_task_data(task_id, "learning_state") or {},
                                    min_seed_hours=self._task_configs[task_id].min_seed_time or 0)
         rows = list(enriched.values())
+        current_plan = self._get_task_data(task_id, "current_deletion_plan") or {}
+        if not isinstance(current_plan, dict):
+            current_plan = {}
+        evaluation = {
+            str(row.get("hash")): row
+            for row in (current_plan.get("evaluated") or [])
+            if isinstance(row, dict)
+        } if current_plan.get("engine_mode") == "performance" else {}
+        for row in rows:
+            result = evaluation.get(row["hash"]) if not row.get("deleted") else None
+            row["retention_action"] = result.get("action") if result else None
+            row["retention_reasons"] = list(result.get("reason_codes", result.get("reasons", [])) or []) if result else []
+            row["retention_labels"] = [self._smart_reason_label(code) for code in row["retention_reasons"]]
         if filter == "zero_upload":
             rows = [row for row in rows if row["mature_zero_upload"]]
         elif filter == "min_seed_met":
             rows = [row for row in rows if row["min_seed_met"]]
         elif filter == "download_issues":
             rows = [row for row in rows if row.get("download_overdue") or row.get("download_health_auto_paused") or row.get("download_health") in {HEALTH_STALLED, HEALTH_SLOW, HEALTH_ERROR, HEALTH_QUEUED}]
+        elif filter == "protected":
+            rows = [row for row in rows if row.get("retention_action") and row["retention_action"] != "candidate"]
+        elif filter == "candidates":
+            rows = [row for row in rows if row.get("retention_action") == "candidate"]
         sort_key = {
             "newest": lambda row: -float(row.get("time") or 0),
             "yield": lambda row: (row["yield_per_gb_24h"], -row["size"]),
@@ -2082,7 +2099,13 @@ class SmartBrushFlow(_PluginBase):
         protected_bytes_by_hash: Dict[str, float] = {}
         eligible_count = 0
         eligible_bytes = 0.0
-        evaluated_rows = deletion_plan.get("evaluated") or []
+        # Overview describes current managed torrents, not seeds already removed
+        # after this evaluation. Keep historical plans and audits unchanged.
+        evaluated_rows = list({
+            str(row.get("hash")): row
+            for row in (deletion_plan.get("evaluated") or [])
+            if str(row.get("hash") or "") in torrent_sizes
+        }.values())
         for row in evaluated_rows:
             torrent_hash = str(row.get("hash") or "")
             torrent_size = float(row.get("size") or torrent_sizes.get(torrent_hash) or 0)
@@ -2121,13 +2144,12 @@ class SmartBrushFlow(_PluginBase):
         )
         false_positive_count = sum(1 for row in candidate_rows if row.get("recovered"))
         deletion_reason_codes = list(deletion_plan.get("reason_codes") or [])
-        planned_items = deletion_plan.get("items") or deletion_plan.get("selected") or []
+        planned_items = [
+            row for row in (deletion_plan.get("items") or deletion_plan.get("selected") or [])
+            if str(row.get("hash") or "") in torrent_sizes
+        ]
         planned_count = len(planned_items)
-        planned_bytes = (
-            sum(float(row.get("size") or 0) for row in planned_items if row.get("delete_data"))
-            if planned_items
-            else float(deletion_plan.get("estimated_freed_bytes") or 0)
-        )
+        planned_bytes = sum(float(row.get("size") or 0) for row in planned_items if row.get("delete_data"))
         if not task.smart_enabled:
             readiness = {
                 "state": "disabled",
@@ -2188,6 +2210,15 @@ class SmartBrushFlow(_PluginBase):
             }
             for row in evaluated_rows
             if row.get("action") == "candidate"
+        ]
+        protected_items = [
+            {
+                "hash": str(row.get("hash")),
+                "title": row.get("title") or torrents.get(str(row.get("hash")), {}).get("title"),
+                "size": float(row.get("size") or torrent_sizes.get(str(row.get("hash")), 0)),
+                "reasons": list(row.get("reason_codes", row.get("reasons", [])) or []),
+            }
+            for row in evaluated_rows if row.get("action") != "candidate"
         ]
         runs = self._get_task_data(task_id, "runs") or []
         latest_brush = next((row for row in runs if row.get("kind") == "brush"), {})
@@ -2286,7 +2317,9 @@ class SmartBrushFlow(_PluginBase):
             "deletion": {
                 "state": readiness.get("state"),
                 "candidate_count": eligible_count,
-                "candidate_bytes": float(readiness.get("candidate_bytes") or planned_bytes or eligible_bytes),
+                "candidate_bytes": eligible_bytes,
+                "next_batch_bytes": planned_bytes,
+                "next_batch_count": planned_count,
                 "protected_count": protected_count,
                 "protected_bytes": protected_bytes,
                 "message": readiness.get("message"),
@@ -2335,7 +2368,7 @@ class SmartBrushFlow(_PluginBase):
                 "capacity_trigger_percent": task.smart_capacity_trigger_percent,
                 "capacity_target_percent": task.smart_capacity_target_percent,
                 "recovery_active": recovery_active,
-                "estimated_freed_bytes": (latest_deletion or {}).get("estimated_freed_bytes", 0),
+                "estimated_freed_bytes": planned_bytes,
                 "deletion_readiness": readiness,
                 "eligible_candidate_count": eligible_count,
                 "eligible_candidate_bytes": eligible_bytes,
@@ -2348,6 +2381,8 @@ class SmartBrushFlow(_PluginBase):
                 "deletion_blockers": deletion_blockers,
                 "deletion_reason_codes": deletion_reason_codes,
                 "pending_candidates": current_candidate_rows[:50],
+                "protected_items": protected_items[:50],
+                "evaluation_at": float(deletion_plan.get("at") or 0),
                 "historic_candidates": candidate_rows[:50],
                 "audit_count": len(audit),
                 "ui_summary": ui_summary,

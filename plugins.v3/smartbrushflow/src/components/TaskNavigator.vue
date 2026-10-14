@@ -18,8 +18,9 @@ function select(id) {
 <template>
   <section v-if="items.length" class="task-navigator" aria-label="刷流任务切换">
     <div class="task-navigator__picker">
+      <div class="task-navigator__control"><span class="task-navigator__caption">当前任务 · 点击切换或搜索</span>
       <VAutocomplete :model-value="selectedId" :items="items" item-title="displayTitle" item-value="id" :custom-filter="filterTaskNavigation"
-        label="切换任务 · 可搜索站点或名称" aria-label="切换刷流任务" variant="outlined" density="compact" hide-details
+        aria-label="切换刷流任务" placeholder="搜索任务、站点或下载器" variant="outlined" density="compact" hide-details
         :menu-props="{ maxHeight: 360 }" no-data-text="没有匹配的任务，试试站点或下载器名称"
         @update:model-value="select">
         <template #item="{ props: optionProps, item }">
@@ -38,6 +39,7 @@ function select(id) {
           </VListItem>
         </template>
       </VAutocomplete>
+      </div>
       <div v-if="items.length > 1" class="task-navigator__arrows">
         <VBtn icon="mdi-chevron-left" aria-label="上一个任务" title="上一个任务" size="small" variant="text" :disabled="!previous" @click="select(previous)" />
         <VBtn icon="mdi-chevron-right" aria-label="下一个任务" title="下一个任务" size="small" variant="text" :disabled="!next" @click="select(next)" />
@@ -55,6 +57,8 @@ function select(id) {
 .task-navigator{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid rgba(var(--v-border-color),var(--v-border-opacity));border-radius:14px;background:rgba(var(--v-theme-surface),.55)}
 .task-navigator__picker{display:flex;align-items:center;gap:6px;flex:1;min-width:0;max-width:600px}
 .task-navigator__picker>:first-child{flex:1;min-width:0}
+.task-navigator__control{display:flex;flex-direction:column;gap:5px;min-width:0}
+.task-navigator__caption{font-size:.74rem;color:rgba(var(--v-theme-on-surface),.65)}
 .task-navigator__arrows{display:flex;flex-shrink:0}
 .task-navigator__counts{display:flex;align-items:center;flex-wrap:wrap;gap:16px;color:rgba(var(--v-theme-on-surface),var(--v-medium-emphasis-opacity));font-size:.8rem}
 .task-navigator__counts>span{display:inline-flex;align-items:center;gap:4px;white-space:nowrap}

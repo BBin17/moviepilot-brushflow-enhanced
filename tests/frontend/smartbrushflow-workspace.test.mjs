@@ -1,0 +1,50 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+import {deletionView,runPresentation} from '../../plugins.v3/smartbrushflow/src/workspace-ui.js'
+
+test('pending data is not presented as zero candidates and safety/observation are explicit',()=>{
+  const summary={deletion:{enabled:true,state:'pending_evaluation',min_seed_hours:168,idle_zero_upload_hours:96}}
+  const original=structuredClone(summary)
+  const view=deletionView(summary)
+  assert.equal(view.candidateLabel,'待检查')
+  assert.match(view.safety,/最低保种168小时/)
+  assert.match(view.rule,/连续96小时/)
+  assert.match(deletionView(summary,{mode:'shadow'}).title,/只记录计划/)
+  assert.match(deletionView(summary,{mode:'paused'}).title,/已暂停/)
+  assert.deepEqual(summary,original)
+  assert.match(deletionView({deletion:{enabled:false}}).title,/未启用/)
+  assert.match(deletionView().safety,/尚未设置/)
+  assert.match(deletionView({...summary,health:{status:'task_paused'}},{mode:'active'}).title,/暂不自动淘汰/)
+})
+test('completed deletion records explain actual completion while failures remain failures',()=>{
+  const result=runPresentation({kind:'check',success:true,deleted_count:5,deletion_message:'将按硬安全线复核后执行。'})
+  assert.equal(result.result,'完成')
+  assert.match(result.explanation,/本次已删除 5/)
+  assert.doesNotMatch(result.explanation,/将.*执行/)
+  const failed=runPresentation({success:false,error:'下载器不可用',deletion_message:'安全检查未完成'})
+  assert.equal(failed.result,'失败')
+  assert.equal(failed.error,'下载器不可用')
+  assert.match(runPresentation({success:false,deleted_count:2}).explanation,/已删除 2.*其余处理未完成/)
+  assert.equal(runPresentation({kind:'brush',added_count:3}).metrics,'新增 3 · 过滤 0')
+})
+test('workspace supports protected drilldown, safe actions, history pagination and mobile seed rows',()=>{
+  const base=new URL('../../plugins.v3/smartbrushflow/src/components/',import.meta.url)
+  const status=readFileSync(new URL('TaskStatusView.vue',base),'utf8')
+  assert.match(status,/'inspect','protection'/)
+  assert.match(status,/action.enabled === false \|\| loading \|\| busy/)
+  assert.match(status,/种子总数已去重/)
+  assert.doesNotMatch(status,/decision-box|support-box/)
+  const parent=readFileSync(new URL('SmartBrushFlow.vue',base),'utf8')
+  assert.match(parent,/class="bf9__workspace"/)
+  assert.match(parent,/events\?page=\$\{runPage.value\}/)
+  assert.match(parent,/@page="changeRunPage"/)
+  assert.match(parent,/:fullscreen="display.xs.value"/)
+  const table=readFileSync(new URL('TaskTorrentTable.vue',base),'utf8')
+  assert.match(table,/class="seed-mobile"/)
+  assert.match(table,/更多数据与完整名称/)
+  assert.match(table,/seed-desktop\{display:none\}/)
+  const navigator=readFileSync(new URL('TaskNavigator.vue',base),'utf8')
+  assert.match(navigator,/当前任务 · 点击切换或搜索/)
+  assert.doesNotMatch(navigator,/label="切换任务/)
+})
