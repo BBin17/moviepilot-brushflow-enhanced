@@ -62,7 +62,7 @@ def setup_service(*, shadow=False):
     repository.save("task", "torrents", records)
     repository.save("task", "learning_state", {"snapshots": [
         {"hash": key, "at": NOW - hour * 3600, "uploaded": 100, "size": row["total_size"]}
-        for key, row in rows.items() for hour in range(26)
+        for key, row in rows.items() for hour in range(74)
     ]})
     repository.save("task", "smart_history", [
         {"hash": key, "at": NOW - minutes * 60, "uploaded": 100, "leechers": row["leechers"], "low_value": True}

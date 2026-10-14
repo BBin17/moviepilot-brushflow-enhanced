@@ -4,13 +4,15 @@ MoviePilot V3 的多站点刷流插件。9.0 系列重构为单一嵌套任务�
 
 固定发布、MoviePilot 更新和实机核验步骤见 [更新操作手册](BRUSHFLOW_UPDATE_RUNBOOK.md)。旧版插件的详细行为与 API 见 [站点刷流说明](plugins.v3/brushflow/README.md)，新插件的说明见 [智能刷流说明](plugins.v3/smartbrushflow/README.md)。
 
-## 独立插件：智能刷流 1.1.1
+## 独立插件：智能刷流 1.3.0
 
 `SmartBrushFlow` 是全新的 MoviePilot V3 插件 ID，目录、配置前缀、API、前端联邦入口、任务数据和 qB 标签都与旧版 `BrushFlow` 分开。两者可以同时安装；安装智能刷流不会迁移、覆盖或删除咖啡、馒头、憨憨等旧任务。
 
 从 1.0.0 开始，新插件按 V3 SDK 合同维护：主类位于 `plugins.v3/smartbrushflow/__init__.py`，市场索引位于 `package.v3.json` 的 `SmartBrushFlow` 条目，版本检查使用 `scripts/check_smartbrushflow_release.py`。
 
-## 9.1 / 1.1 重点
+1.3改为真实表现驱动：长期零上传种子满足站点最低保种后主动淘汰，空间充足也会执行。容量只管新增硬上限，不再使用清理停止线和释放GB额度。概览以“上传表现、待淘汰、受保护及原因”为核心；永久安全保护和审计先写后删不变。新插件发布与安装见[智能刷流发布手册](SMARTBRUSHFLOW_RELEASE.md)。
+
+## 9.1 / 1.1 历史版本说明（1.3新规则见上方）
 
 - 响应式任务健康卡、白话结论、推荐操作和四步配置向导。
 - 本地 30 天收益学习；未知 Tracker 人数保持中性。

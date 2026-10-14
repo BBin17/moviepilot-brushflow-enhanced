@@ -176,6 +176,7 @@ class TorrentObservation:
     learned_potential: float = 0.0
     demand_confirmations: Optional[int] = None
     tracker_demand_stale: bool = False
+    idle_zero_upload: bool = False
     low_value_confirmations: Optional[int] = None
     low_value_span_minutes: float = 0.0
     capacity_pressure: float = 0.0
@@ -218,6 +219,7 @@ class TorrentObservation:
             learned_potential=max(0.0, min(_number(data.get("learned_potential")), 15.0)),
             demand_confirmations=max(int(_number(data["demand_confirmations"])), 0) if data.get("demand_confirmations") is not None else None,
             tracker_demand_stale=bool(data.get("tracker_demand_stale", False)),
+            idle_zero_upload=bool(data.get("idle_zero_upload", False)),
             low_value_confirmations=max(int(_number(data["low_value_confirmations"])), 0) if data.get("low_value_confirmations") is not None else None,
             low_value_span_minutes=_positive(data.get("low_value_span_minutes")),
             # 容量压力允许超过 100%，供超额恢复模式区分“刚触发”与严重超额。
@@ -260,6 +262,8 @@ class SmartPolicy:
     max_delete_capacity_percent_day: float = 8.0
     max_delete_gb_per_run: float = 0.0
     max_delete_gb_per_day: float = 0.0
+    idle_zero_upload_hours: float = 72.0
+    performance_driven: bool = False
     excluded_tags: tuple[str, ...] = ()
 
 
@@ -324,7 +328,7 @@ def manual_cleanup_policy(policy: SmartPolicy) -> SmartPolicy:
         policy,
         max_delete_per_run=10,
         max_delete_percent_day=100.0,
-        max_delete_capacity_percent_run=25.0,
+        max_delete_capacity_percent_run=0.0 if policy.performance_driven else 25.0,
         max_delete_capacity_percent_day=100.0,
         max_delete_gb_per_run=0.0,
         max_delete_gb_per_day=0.0,
@@ -758,6 +762,8 @@ def evaluate_candidate(
     inactive_floor = max(policy.smart_cold_inactive_minutes, policy.min_inactive_minutes)
     if inactive_floor > 0 and observation.inactive_time < inactive_floor * 60:
         return blocked("smart_cold_cooldown")
+    if policy.performance_driven and not observation.upload_window_observed_24h:
+        return DecisionResult(observation.torrent_hash, "keep", 100.0, ("insufficient_upload_history",))
     score, contributions = retention_score(
         observation,
         history,
@@ -765,7 +771,11 @@ def evaluate_candidate(
         ratio_weight=policy.ratio_weight,
     )
     cutoff = max(0.0, policy.score_threshold - max(policy.score_margin, 0.0))
-    if score > cutoff:
+    idle = bool(policy.idle_zero_upload_hours > 0 and observation.idle_zero_upload
+                and observation.seeding_time >= policy.idle_zero_upload_hours * 3600)
+    if policy.performance_driven and observation.upload_delta_24h == 0 and not idle:
+        return DecisionResult(observation.torrent_hash, "keep", score, ("zero_upload_window_pending",), contributions)
+    if score > cutoff and not idle:
         return DecisionResult(observation.torrent_hash, "keep", score, ("valuable_seed",), contributions)
     required = max(policy.low_value_confirmations, 1)
     confirmations, span = _confirmation_state(observation, history, required)
@@ -774,7 +784,8 @@ def evaluate_candidate(
         details = dict(contributions)
         details.update({"confirmations": float(confirmations), "confirmation_span_minutes": round(span, 2)})
         return DecisionResult(observation.torrent_hash, "watch", score, ("low_value_unconfirmed",), details)
-    return DecisionResult(observation.torrent_hash, "candidate", score, ("low_retention_value",), contributions)
+    return DecisionResult(observation.torrent_hash, "candidate", score,
+                          ("long_zero_upload",) if idle else ("low_retention_value",), contributions)
 
 
 def select_deletions(
@@ -809,7 +820,7 @@ def select_deletions(
         if capacity_base_for_pressure
         else (1.0 if pressure else 0.0)
     )
-    capacity_pressure = min(capacity_ratio, 4.0)
+    capacity_pressure = 0.0 if policy.performance_driven else min(capacity_ratio, 4.0)
     recovery_active = bool(pressure and target_size is not None and current_size > target_size)
     normalized = [
         TorrentObservation(**{**item.__dict__, "capacity_pressure": capacity_pressure})
@@ -823,7 +834,9 @@ def select_deletions(
         )
         for item in normalized
     )
-    if not pressure:
+    idle_hashes = {item.torrent_hash for item in normalized if item.idle_zero_upload and policy.idle_zero_upload_hours > 0
+                   and item.seeding_time >= policy.idle_zero_upload_hours * 3600}
+    if not policy.performance_driven and not pressure and not any(row.eligible and row.torrent_hash in idle_hashes for row in evaluated):
         return SelectionResult(
             evaluated=evaluated,
             reason_codes=("no_pressure",),
@@ -831,6 +844,8 @@ def select_deletions(
             capacity_ratio=capacity_ratio,
         )
 
+    if policy.performance_driven or not pressure:
+        target_size = 0.0  # Prune only confirmed idle rows, regardless of free space.
     if target_size is None:
         return SelectionResult(
             evaluated=evaluated,
@@ -841,7 +856,7 @@ def select_deletions(
         )
 
     by_hash = {item.torrent_hash: item for item in normalized}
-    eligible = [result for result in evaluated if result.eligible]
+    eligible = [result for result in evaluated if result.eligible and (policy.performance_driven or pressure or result.torrent_hash in idle_hashes)]
     eligible.sort(
         key=lambda result: (
             math.floor(result.score / 5.0),
@@ -872,7 +887,15 @@ def select_deletions(
         if zero and fits:
             return (0, -min(size, debt), max(size - debt, 0), math.floor(result.score / 5), item.yield_per_gb_24h, -size)
         return (1 if fits else 2, math.floor(result.score / 5), item.yield_per_gb_24h, -size, 0, 0)
-    eligible.sort(key=recovery_priority)
+    if policy.performance_driven:
+        eligible.sort(key=lambda row: (
+            0 if row.torrent_hash in idle_hashes else 1,
+            by_hash[row.torrent_hash].yield_per_gb_24h,
+            -by_hash[row.torrent_hash].total_size if row.torrent_hash in idle_hashes else math.floor(row.score / 5),
+            row.score,
+        ))
+    else:
+        eligible.sort(key=recovery_priority)
     selected: list[DecisionResult] = []
     reasons: list[str] = []
     freed = 0.0
@@ -907,11 +930,11 @@ def select_deletions(
         selected=tuple(selected),
         evaluated=evaluated,
         reason_codes=tuple(dict.fromkeys(reasons)),
-        pressure=True,
+        pressure=pressure,
         target_size=target_size,
         estimated_freed_bytes=freed,
         capacity_ratio=capacity_ratio,
-        capacity_debt_bytes=max(current_size - target_size, 0.0),
+        capacity_debt_bytes=max(current_size - target_size, 0.0) if pressure else 0.0,
         recovery_active=recovery_active,
         run_byte_cap=run_byte_cap,
         daily_byte_cap=daily_byte_cap,

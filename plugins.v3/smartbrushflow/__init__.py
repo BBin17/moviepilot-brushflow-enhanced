@@ -27,7 +27,6 @@ from .decision import (
     SmartPolicy,
     adaptive_selection_policy,
     candidate_score,
-    capacity_recovery_state,
     capacity_selection_policy,
     detect_invalid_seed,
     rank_selection_candidates,
@@ -49,14 +48,13 @@ from .download_health import (
     health_label,
     policy_for_profile,
 )
-from .v9 import TaskConfigV9, migrate_task_rows_v9, migrate_yield_policy
-from .presentation import build_health_summary, deletion_quota_message
+from .v9 import TaskConfigV9, migrate_task_rows_v9, migrate_yield_policy, migrate_performance_policy
+from .presentation import build_health_summary
 from .repository import TaskRepository
 from .health_service import DownloadHealthService
 from .performance import performance_rows, summarize_performance
-from .recovery import recovery_summary
 from .operations import OperationError, TaskService
-from .deletion_service import DeletionService, policy_for_document
+from .deletion_service import DeletionService
 from .downloaders import DownloaderAdapter, DownloaderUnavailable
 from .manual_download_deletion import (
     ManualDownloadDeletionService,
@@ -341,7 +339,7 @@ class SmartBrushFlow(_PluginBase):
     """
 
     plugin_name = "智能刷流"
-    plugin_desc = "本地 30 天收益学习、硬安全线、容量闭环与可解释智能选删种。"
+    plugin_desc = "按真实上传表现留种，长期零上传主动淘汰，最低保种与硬安全保护优先。"
     plugin_icon = "brush-flow.png"
     plugin_version = __version__
     plugin_author = "jxxghp,InfinityPacer,Seed680"
@@ -419,6 +417,11 @@ class SmartBrushFlow(_PluginBase):
         task_rows, v9_backups, migrated_v9 = migrate_task_rows_v9(task_rows, v9_backups)
         if migrated_v9:
             self._repository.save_global("v9_task_config_backups", v9_backups)
+        task_rows, performance_backups, performance_migrated = migrate_performance_policy(
+            task_rows, self._repository.get_global("v1_3_task_config_backups", {}) or {},
+        )
+        if performance_migrated:
+            self._repository.save_global("v1_3_task_config_backups", performance_backups)
 
         self._task_configs: Dict[str, BrushTaskConfig] = {}
         self._task_documents: Dict[str, TaskConfigV9] = {}
@@ -900,6 +903,9 @@ class SmartBrushFlow(_PluginBase):
                 or document.strategy.overrides.candidate_confirmations < previous.smart_candidate_confirmations
                 or document.strategy.overrides.confirmation_minutes < previous.smart_candidate_confirmation_minutes
                 or document.strategy.overrides.tracker_demand_grace_hours < previous_document.strategy.overrides.tracker_demand_grace_hours
+                or (document.deletion.idle_zero_upload_hours is not None and
+                    (previous_document.deletion.idle_zero_upload_hours is None or
+                     document.deletion.idle_zero_upload_hours < previous_document.deletion.idle_zero_upload_hours))
             )
         )
         if newly_enabled or risk_increased:
@@ -2060,14 +2066,9 @@ class SmartBrushFlow(_PluginBase):
             and bool(row.get("delete_data"))
         )
         capacity = float(task.disksize or 0) * 1024**3
-        capacity_target = capacity * task.smart_capacity_target_percent / 100 if capacity else None
+        capacity_target = capacity if capacity else None
         capacity_ratio = current_size / capacity if capacity else 0.0
-        recovery_state = self._get_task_data(task_id, "capacity_recovery") or {}
-        recovery_active = bool(
-            capacity
-            and recovery_state.get("active", current_size >= capacity * task.smart_capacity_trigger_percent / 100)
-            and current_size > (capacity_target or current_size)
-        )
+        recovery_active = False
         torrent_sizes = {
             str(torrent_hash): float(
                 torrent.get("size") or torrent.get("total_size") or 0
@@ -2120,12 +2121,6 @@ class SmartBrushFlow(_PluginBase):
         )
         false_positive_count = sum(1 for row in candidate_rows if row.get("recovered"))
         deletion_reason_codes = list(deletion_plan.get("reason_codes") or [])
-        recovery_details = recovery_summary(
-            policy=policy_for_document(document), active_count=sum(not row.get("deleted") for row in torrents.values()),
-            capacity=capacity or current_size, current=current_size, target=capacity_target or current_size,
-            ledger=self._get_task_data(task_id, "smart_deletions") or [],
-            candidates=[row for row in evaluated_rows if row.get("action") == "candidate"], now=now,
-        ) if document else {}
         planned_items = deletion_plan.get("items") or deletion_plan.get("selected") or []
         planned_count = len(planned_items)
         planned_bytes = (
@@ -2143,10 +2138,10 @@ class SmartBrushFlow(_PluginBase):
                 "state": "capacity_unset",
                 "message": "未设置任务容量，智能删种不会因空间压力自动清理。",
             }
-        elif current_size <= (capacity_target or current_size):
+        elif not eligible_count and not planned_count:
             readiness = {
                 "state": "at_target",
-                "message": "容量已在目标范围内，当前无需删种。",
+                "message": "暂无符合淘汰条件的种子；继续保留有收益、受保护或仍在确认的种子。",
             }
         elif planned_count:
             if mode == "shadow":
@@ -2158,27 +2153,16 @@ class SmartBrushFlow(_PluginBase):
             readiness = {
                 "state": "shadow" if mode == "shadow" else "paused" if mode == "paused" else "planned",
                 "message": (
-                    f"已找到 {planned_count} 个低价值候选，预计释放 {self.__bytes_to_gb(planned_bytes):.1f} GB；"
+                    f"已识别 {eligible_count} 个表现不佳的种子，本次逐个复核 {planned_count} 个，预计释放 {self.__bytes_to_gb(planned_bytes):.1f} GB；"
                     f"{plan_outcome}"
                 ),
                 "candidate_count": planned_count,
                 "candidate_bytes": planned_bytes,
             }
-        elif eligible_count and any(
-            code in deletion_reason_codes
-            for code in ("byte_cap", "daily_count_cap", "run_count_cap", "run_byte_cap", "daily_byte_cap", "candidate_exceeds_remaining_bytes")
-        ):
-            quota_message = deletion_quota_message(deletion_reason_codes)
-            readiness = {
-                "state": "quota",
-                "message": f"已有低价值候选，但{quota_message}；策略会在额度恢复后继续处理。",
-                "candidate_count": eligible_count,
-                "candidate_bytes": eligible_bytes,
-            }
         elif eligible_count:
             readiness = {
                 "state": "waiting",
-                "message": "已有低价值候选，正在等待下一次连续确认或容量额度。",
+                "message": "自动删除已暂停。" if mode == "paused" else "安全观察中，只记录计划，不会实际删除。" if mode == "shadow" else f"已识别 {eligible_count} 个低收益种子，下一次检查逐个复核后淘汰，不等待GB额度。",
                 "candidate_count": eligible_count,
                 "candidate_bytes": eligible_bytes,
             }
@@ -2240,16 +2224,18 @@ class SmartBrushFlow(_PluginBase):
             download=download_health,
             mode=mode,
             shadow_remaining_seconds=shadow_remaining,
-            capacity_pressure=bool(capacity and current_size > (capacity_target or current_size)),
+            capacity_pressure=bool(capacity and current_size > capacity),
             readiness_message=str(readiness.get("message") or "容量高于目标，等待安全候选。"),
             task_enabled=task.enabled,
         )
         health = presentation["health"]
+        if health["status"] == "healthy" and mode == "active" and task.enabled and eligible_count:
+            health = {"level": "warning", "title": "低收益种子准备淘汰", "status": "performance_pruning", "message": readiness["message"]}
         recommended_actions = presentation["recommended_actions"]
-        if mode == "active" and task.enabled and eligible_count and recovery_active:
+        if mode == "active" and task.enabled and eligible_count:
             recommended_actions.append({
-                "code": "preview_cleanup", "label": "预览空间恢复清理", "tone": "warning", "enabled": True,
-                "confirm": "只生成名单，不会直接删除。手动清理可放宽本次额度，但不会绕过硬安全线；执行前还需确认名单和是否删除数据。",
+                "code": "preview_cleanup", "label": "查看淘汰名单", "tone": "warning", "enabled": True,
+                "confirm": "只预览符合表现规则的种子，不会直接删除。实际执行前还需确认名单，最低保种等硬安全线不可绕过。",
             })
         download_issue_count = presentation["download_issue_count"]
         manual_delete_pending = {
@@ -2286,20 +2272,26 @@ class SmartBrushFlow(_PluginBase):
                 "current_bytes": current_size,
                 "limit_bytes": capacity,
                 "percent": capacity_percent,
-                "trigger_bytes": capacity * task.smart_capacity_trigger_percent / 100 if capacity else None,
-                "target_bytes": capacity_target,
+                "trigger_bytes": None,
+                "target_bytes": None,
                 "recovery_active": recovery_active,
                 "debt_bytes": max(current_size - (capacity_target or current_size), 0),
             },
             "selection": selection_summary,
             "deletion": {
                 "state": readiness.get("state"),
-                "candidate_count": int(readiness.get("candidate_count") or planned_count or eligible_count),
+                "candidate_count": eligible_count,
                 "candidate_bytes": float(readiness.get("candidate_bytes") or planned_bytes or eligible_bytes),
                 "protected_count": protected_count,
                 "protected_bytes": protected_bytes,
                 "message": readiness.get("message"),
-                "quota": recovery_details,
+                "idle_zero_upload_hours": document.deletion.idle_zero_upload_hours if document else None,
+                "idle_candidate_count": sum(row.get("action") == "candidate" and bool(row.get("idle_zero_upload")) for row in evaluated_rows),
+                "evaluation_count": len(evaluated_rows),
+                "batch_size": 5,
+                "performance_driven": True,
+                "enabled": task.smart_enabled,
+                "min_seed_hours": document.deletion.min_seed_hours if document else None,
             },
             "download": {
                 "state": "attention" if download_issue_count else "healthy",
@@ -2744,15 +2736,6 @@ class SmartBrushFlow(_PluginBase):
                     f"超过任务保种上限 {task.disksize} GB"
                 )
                 return False, reason
-            recovery = capacity_recovery_state(
-                torrents_size, limit_size, self._smart_policy(task),
-                previous=self._get_task_data(task.id, "capacity_recovery") or {},
-            )
-            if recovery["active"]:
-                return False, (
-                    f"空间恢复中，暂停新增；当前 {self.__bytes_to_gb(torrents_size):.1f} GB，"
-                    f"需回落至 {self.__bytes_to_gb(recovery['target_bytes']):.1f} GB"
-                )
         global_disksize = getattr(self, "_global_disksize", None)
         if global_disksize:
             if global_torrents_size is None:
@@ -3186,6 +3169,9 @@ class SmartBrushFlow(_PluginBase):
             "min_inactive_time": "尚未达到最低未活动时间",
             "excluded_tag": "命中删除排除标签",
             "low_retention_value": "长期低需求、低上传或资源不稀缺",
+            "long_zero_upload": "完整长期零上传，满足保种后主动淘汰",
+            "insufficient_upload_history": "真实上传观测尚不足24小时，继续保留",
+            "zero_upload_window_pending": "尚未达到连续零上传淘汰时长，继续观察",
             "low_value_unconfirmed": "低价值信号尚未连续确认",
             "valuable_seed": "存在上传需求或资源稀缺，继续保留",
             "no_low_value_candidate": "没有通过安全线和连续确认的低价值候选",

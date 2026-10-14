@@ -1,3 +1,3 @@
 """SmartBrushFlow 发布版本的唯一代码来源。"""
 
-__version__ = "1.2.2"
+__version__ = "1.3.0"

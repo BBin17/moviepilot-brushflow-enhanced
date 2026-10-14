@@ -121,9 +121,9 @@ def test_task_status_exposes_live_quota_and_preview_not_delete(monkeypatch):
     monkeypatch.setattr(plugin, "_get_task_data", lambda task_id, key: data.get(key))
     monkeypatch.setattr(sys.modules["app.plugins.smartbrushflow"].time, "time", lambda: NOW)
     summary = plugin._build_strategy_status("task")["ui_summary"]
-    assert summary["capacity"]["debt_bytes"] == 23*GIB
-    assert summary["deletion"]["quota"]["deleted_count_24h"] == 1
-    assert summary["deletion"]["quota"]["oversized_count"] == 1
+    assert summary["capacity"]["debt_bytes"] == 0  # Capacity is now only an admission ceiling.
+    assert summary["deletion"]["performance_driven"] is True
+    assert "quota" not in summary["deletion"]
     assert "preview_cleanup" in [action["code"] for action in summary["recommended_actions"]]
     document.deletion.observation_until = NOW+3600
     plugin._task_configs["task"] = BrushTaskConfig(document.to_runtime())

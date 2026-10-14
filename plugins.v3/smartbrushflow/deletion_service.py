@@ -46,14 +46,13 @@ def policy_for_document(document) -> SmartPolicy:
         low_value_span_minutes=overrides.confirmation_minutes,
         score_threshold=overrides.deletion_score_threshold,
         ratio_target=document.goal.ratio_target or 2, ratio_weight=5,
-        capacity_trigger_percent=overrides.capacity_trigger_percent,
-        capacity_target_percent=overrides.capacity_target_percent,
-        max_delete_per_run=overrides.max_delete_per_run,
-        max_delete_percent_day=overrides.max_delete_percent_day,
-        max_delete_capacity_percent_run=overrides.max_release_percent_run,
-        max_delete_capacity_percent_day=overrides.max_release_percent_day,
-        max_delete_gb_per_run=overrides.max_release_gb_run or 0,
-        max_delete_gb_per_day=overrides.max_release_gb_day or 0,
+        performance_driven=True,
+        capacity_trigger_percent=100, capacity_target_percent=100,
+        max_delete_per_run=5,  # I/O batch size, not a storage-release target.
+        max_delete_percent_day=0,
+        max_delete_capacity_percent_run=0, max_delete_capacity_percent_day=0,
+        max_delete_gb_per_run=0, max_delete_gb_per_day=0,
+        idle_zero_upload_hours=document.deletion.idle_zero_upload_hours or 0,
         excluded_tags=tuple(tag.strip() for tag in (document.deletion.exclude_tags or "").split(",") if tag.strip()),
     )
 
@@ -191,6 +190,17 @@ class DeletionService:
                 and number(info.get("active_peers"), -1) == 0
                 and info["upload_delta_since_check"] == 0
             )
+            idle_hours = self.policy.idle_zero_upload_hours
+            idle_window = measure_upload_window(
+                snapshots_by_hash[torrent_hash], uploaded=number(info.get("uploaded")), now=now,
+                hours=idle_hours or 72,
+            )
+            info["idle_zero_upload"] = bool(
+                idle_hours > 0 and idle_window["complete"] and idle_window["delta"] == 0
+                and number(info.get("seeding_time")) >= idle_hours * 3600
+                and number(info.get("upload_speed"), -1) == 0
+                and number(info.get("active_peers"), -1) == 0 and info["upload_delta_since_check"] == 0
+            )
             learned = predict_yield(learning, record)
             info["learned_potential"] = learned["score"] / 25 * 15 * learned["confidence"]
             info["pending_confirmation"] = torrent_hash in pending
@@ -211,7 +221,7 @@ class DeletionService:
         capacity = number(self.document.capacity.limit_gb) * GIB
         recovery = capacity_recovery_state(current, capacity, self.policy, previous=self.read("capacity_recovery", {}), now=now)
         policy = manual_cleanup_policy(self.policy) if manual and relax_limits else self.policy
-        if manual:
+        if manual and not self.policy.performance_driven:
             policy = replace(policy, max_delete_per_run=min(10, policy.max_delete_per_run),
                              max_delete_capacity_percent_run=min(25, policy.max_delete_capacity_percent_run or 25))
         ledger = [row for row in self.read("smart_deletions", [])
@@ -273,7 +283,7 @@ class DeletionService:
             "estimated_released_bytes": sum(row["size"] for row in plan["items"] if row["delete_data"]),
             "aggregate": plan["aggregate"], "reason_codes": list(plan["selection"].reason_codes),
             "limits": {"max_count": min(10, plan["budget"]["run_count_cap"]),
-                       "max_bytes": min(number(self.document.capacity.limit_gb) * GIB * .25, plan["budget"]["run_byte_cap"] or math.inf),
+                       "max_bytes": None if self.policy.performance_driven else min(number(self.document.capacity.limit_gb) * GIB * .25, plan["budget"]["run_byte_cap"] or math.inf),
                        "remaining_24h_count": plan["budget"]["remaining_daily_count"],
                        "remaining_24h_bytes": plan["budget"]["remaining_daily_bytes"]},
         }
@@ -317,7 +327,7 @@ class DeletionService:
 
     def execute(self, operation_id: str, items: list[dict], *, relax_limits=False, manual=False, invalid_revalidator=None) -> dict:
         items = deepcopy(items)
-        if manual and (len(items) > 10 or sum(number(row.get("size")) for row in items) > number(self.document.capacity.limit_gb) * GIB * .25):
+        if manual and (len(items) > 10 or (not self.policy.performance_driven and sum(number(row.get("size")) for row in items) > number(self.document.capacity.limit_gb) * GIB * .25)):
             raise OperationError("manual_limit_exceeded", "本轮不能超过10个种子或任务容量的25%")
         submitted_count, submitted_bytes = 0, 0.0
         self.operations.update(self.task_id, operation_id, items=items, phase="安全复核", selected_count=len(items))
@@ -344,7 +354,7 @@ class DeletionService:
                     reasons.append("previous_request_unconfirmed")
                 if observation and observation["management_tag_removed"]:
                     reasons.append("management_tag_removed")
-                if not invalid and not latest["recovery"]["active"]:
+                if not self.policy.performance_driven and not invalid and not latest["recovery"]["active"] and (result is None or "long_zero_upload" not in result.reason_codes):
                     reasons.append("capacity_target_reached")
                 budget = latest["budget"]
                 if submitted_count >= budget["run_count_cap"]:
@@ -470,6 +480,7 @@ class DeletionService:
                 "reason_codes": list(row.reason_codes),
                 "contributions": dict(row.contributions),
                 "tracker_demand_stale": bool(observation.get("tracker_demand_stale")),
+                "idle_zero_upload": bool(observation.get("idle_zero_upload")),
                 "upload_delta_24h": number(observation.get("upload_delta_24h")),
                 "upload_window_observed_24h": bool(observation.get("upload_window_observed_24h")),
                 "seeding_time": number(observation.get("seeding_time")),

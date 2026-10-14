@@ -88,6 +88,7 @@ class DeletionConfig(BaseModel):
     exclude_tags: Optional[str] = None
     delete_data: bool = True
     invalid_tracker_cleanup: bool = False
+    idle_zero_upload_hours: Optional[float] = Field(72, ge=24, le=720)
     invalid_tracker_confirmations: int = Field(2, ge=1, le=5)
     paused: bool = False
     observation_started_at: Optional[float] = None
@@ -181,6 +182,7 @@ class HealthConfig(BaseModel):
 
 class TaskConfigV9(BaseModel):
     schema_version: Literal[9] = 9
+    engine_mode: Literal["performance"] = "performance"
     id: str = Field(default_factory=lambda: uuid.uuid4().hex)
     revision: int = Field(1, ge=1)
     identity: IdentityConfig
@@ -415,5 +417,21 @@ def migrate_yield_policy(rows, backups=None, *, now=None):
                     deletion["observation_until"] = max(float(deletion.get("observation_until") or 0), timestamp + 48 * 3600)
                 source["revision"] = int(source.get("revision") or 1) + 1
                 changed = True
+        result.append(source)
+    return result, saved, changed
+
+
+def migrate_performance_policy(rows, backups=None, *, now=None):
+    """Back up prior quotas once; preserve enablement, safety and observation."""
+    timestamp = float(time.time() if now is None else now)
+    saved, result, changed = deepcopy(backups or {}), [], False
+    for original in rows:
+        source = deepcopy(original)
+        if isinstance(source, dict) and source.get("identity") and source.get("engine_mode") != "performance":
+            saved.setdefault(str(source.get("id") or ""), {"saved_at": timestamp, "config": deepcopy(original)})
+            source["engine_mode"] = "performance"
+            source.setdefault("deletion", {}).setdefault("idle_zero_upload_hours", 72)
+            source["revision"] = int(source.get("revision") or 1) + 1
+            changed = True
         result.append(source)
     return result, saved, changed

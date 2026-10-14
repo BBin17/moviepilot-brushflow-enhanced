@@ -7,6 +7,7 @@ export const profileDefaults = {
 export function newTaskV9() {
   return {
     schema_version: 9,
+    engine_mode: 'performance',
     id: '',
     revision: 1,
     identity: { name: '', site_id: null, downloader: '', save_path: null, tag: null, enabled: true, notify: true },
@@ -14,7 +15,7 @@ export function newTaskV9() {
     goal: { enabled: false, ratio_target: null, reached_behavior: 'continue' },
     capacity: { limit_gb: null, max_downloads: null, upload_limit_kbps: null, download_limit_kbps: null, torrent_upload_limit_kbps: null, torrent_download_limit_kbps: null },
     selection: { enabled: true, source: 'page', promotion: 'free', exclude_hr: true, site_hr_active: false, exclude_subscriptions: true, size_min_gb: 0.5, size_max_gb: null, seeder_range: null, published_min_minutes: null, published_max_minutes: null, timezone_offset: 0, include: null, exclude: null },
-    deletion: { enabled: false, min_seed_hours: null, exclude_tags: null, delete_data: true, invalid_tracker_cleanup: false, invalid_tracker_confirmations: 2, paused: false, observation_started_at: null, observation_until: null, observation_extensions: 0 },
+    deletion: { enabled: false, min_seed_hours: null, exclude_tags: null, delete_data: true, invalid_tracker_cleanup: false, idle_zero_upload_hours: 72, invalid_tracker_confirmations: 2, paused: false, observation_started_at: null, observation_until: null, observation_extensions: 0 },
     strategy: { profile: 'balanced', overrides: { ...profileDefaults.balanced } },
     health: { stalled_confirmations: 3, stalled_window_minutes: 30, slow_after_hours: 6, slow_speed_kbps: 128, max_download_hours: 48, auto_repair: true, pause_after_failed_repair: true },
   }
@@ -42,7 +43,7 @@ export function normalizeTaskV9(task) {
     ['capacity','torrent_upload_limit_kbps'], ['capacity','torrent_download_limit_kbps'],
     ['selection','size_min_gb'], ['selection','size_max_gb'],
     ['selection','published_min_minutes'], ['selection','published_max_minutes'],
-    ['deletion','min_seed_hours'], ['strategy','overrides','max_release_gb_run'],
+    ['deletion','min_seed_hours'], ['deletion','idle_zero_upload_hours'], ['strategy','overrides','max_release_gb_run'],
     ['strategy','overrides','max_release_gb_day'],
   ]
   optionalNumbers.forEach(path => {
@@ -84,9 +85,8 @@ export function taskPreview(task, siteName = '当前站点') {
   const selection = `${frequency}检查${siteName}${promotionLabel(task.selection.promotion)}，每轮最多新增${task.strategy.overrides.max_add_per_run}个`
   if (!task.deletion.enabled) return `${selection}；自动删种关闭，只监控种子状态。`
   const limit = Number(task.capacity.limit_gb || 0)
-  const trigger = limit * Number(task.strategy.overrides.capacity_trigger_percent || 90) / 100
-  const target = limit * Number(task.strategy.overrides.capacity_target_percent || 85) / 100
-  return `${selection}；容量达到${trigger.toFixed(0)}GB开始安全清理，降到${target.toFixed(0)}GB停止；保种不足${task.deletion.min_seed_hours || 0}小时、正在上传、有活动连接或未完成的种子不会删除；仅Tracker报下载者但完整${task.strategy.overrides.tracker_demand_grace_hours||24}小时零上传时重新评估。`
+  const idle = task.deletion.idle_zero_upload_hours ? `；完整连续${task.deletion.idle_zero_upload_hours}小时零上传且已满足保种的种子会主动淘汰，不等待空间满` : ''
+  return `${selection}；最多使用${limit.toFixed(0)}GB，剩余空间足够就能继续新增${idle}；保种不足${task.deletion.min_seed_hours || 0}小时、正在上传、有活动连接或未完成的种子不会删除；低收益种子按实际表现淘汰，不使用容量停止线或GB释放额度。`
 }
 
 export function healthTone(level) {
