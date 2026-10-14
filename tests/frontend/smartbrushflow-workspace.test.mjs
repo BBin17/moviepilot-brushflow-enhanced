@@ -37,6 +37,7 @@ test('workspace supports protected drilldown, safe actions, history pagination a
   assert.doesNotMatch(status,/decision-box|support-box/)
   const parent=readFileSync(new URL('SmartBrushFlow.vue',base),'utf8')
   assert.match(parent,/class="bf9__workspace"/)
+  assert.match(parent,/bf9__header-actions\{display:grid;width:100%;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/)
   assert.match(parent,/events\?page=\$\{runPage.value\}/)
   assert.match(parent,/@page="changeRunPage"/)
   assert.match(parent,/:fullscreen="display.xs.value"/)
