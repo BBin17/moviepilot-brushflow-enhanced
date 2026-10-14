@@ -4,7 +4,7 @@ MoviePilot V3 的多站点刷流插件。9.0 系列重构为单一嵌套任务�
 
 固定发布、MoviePilot 更新和实机核验步骤见 [更新操作手册](BRUSHFLOW_UPDATE_RUNBOOK.md)。旧版插件的详细行为与 API 见 [站点刷流说明](plugins.v3/brushflow/README.md)，新插件的说明见 [智能刷流说明](plugins.v3/smartbrushflow/README.md)。
 
-## 独立插件：智能刷流 1.3.0
+## 独立插件：智能刷流 1.3.1
 
 `SmartBrushFlow` 是全新的 MoviePilot V3 插件 ID，目录、配置前缀、API、前端联邦入口、任务数据和 qB 标签都与旧版 `BrushFlow` 分开。两者可以同时安装；安装智能刷流不会迁移、覆盖或删除咖啡、馒头、憨憨等旧任务。
 
@@ -25,9 +25,11 @@ MoviePilot V3 的多站点刷流插件。9.0 系列重构为单一嵌套任务�
 - 状态页显示当前评估的保护数量/容量，区分历史观察候选与当前可处理候选。
 - 旧条件删种、动态删种、全局删种托管、模拟运行和 7.3 兼容引擎已移除。
 
-## 升级
+## 安装与升级
 
-插件 ID 与配置前缀保持为 `BrushFlow`，可直接从当前 MoviePilot 版本升级到 9.1.0；独立插件 `SmartBrushFlow` 当前为 1.1.1。咖啡、馒头、憨憨等现有任务会自动迁移；升级前配置保存到只读迁移备份，原始种子身份、学习数据和审计继续保留。
+当前维护的独立插件为 `SmartBrushFlow` 1.3.1。在 MoviePilot V3 添加本仓库插件源后安装“智能刷流”；已安装用户从卡片菜单“更新”升级，保留任务、种子身份、学习历史与审计。1.3首次升级保存不可覆盖的原配置备份，最低保种、排除标签和删除数据选择不变。不要通过卸载或重建任务来更新。
+
+旧插件 `BrushFlow` 9.1.0 与新插件使用不同身份；安装新插件不自动接管旧版任务，也不需要先安装旧版。
 
 发布仓库：[BBin17/moviepilot-brushflow-enhanced](https://github.com/BBin17/moviepilot-brushflow-enhanced)
 
