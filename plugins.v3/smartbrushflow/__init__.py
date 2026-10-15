@@ -26,17 +26,16 @@ from .version import __version__
 from .decision import (
     SmartPolicy,
     adaptive_selection_policy,
-    candidate_score,
     capacity_selection_policy,
     detect_invalid_seed,
-    rank_selection_candidates,
     size_range_matches,
     tracker_endpoint_domain,
 )
 from .learning import (
     learning_summary,
-    predict_yield,
 )
+from .selection import candidate_key, evaluate_opportunities, observe_candidates, public_decision
+from .selection_feedback import feedback_summary, update_feedback
 from .download_health import (
     DownloadHealthPolicy,
     HEALTH_ERROR,
@@ -366,6 +365,8 @@ class SmartBrushFlow(_PluginBase):
         "smart_plan",
         "smart_candidates",
         "learning_state",
+        "selection_history",
+        "selection_feedback",
         "decision_audit",
         "strategy_state",
         "capacity_recovery",
@@ -2223,6 +2224,7 @@ class SmartBrushFlow(_PluginBase):
         runs = self._get_task_data(task_id, "runs") or []
         latest_brush = next((row for row in runs if row.get("kind") == "brush"), {})
         selection_summary = {
+            "feedback": feedback_summary(self._get_task_data(task_id, "selection_feedback"), now=time.time()),
             "version_note": "这是升级前的选种结果；新规则已取消容量回落等待，下一轮会更新。" if latest_brush and latest_brush.get("engine_mode") != "performance" else None,
             "source_checked": bool(latest_brush.get("source_count") or latest_brush.get("result") in {"completed", "no_candidates"}),
             "candidate_count": int(latest_brush.get("source_count") or 0),
@@ -2377,6 +2379,7 @@ class SmartBrushFlow(_PluginBase):
                 "actual_freed_bytes_24h": actual_freed_24h,
                 "download_health": download_health,
                 "selection_explanations": (latest_selection or {}).get("decisions", []),
+                "selection_policy": (latest_selection or {}).get("policy", {}),
                 "deletion_explanations": (latest_deletion or {}).get("selected", []),
                 "deletion_blockers": deletion_blockers,
                 "deletion_reason_codes": deletion_reason_codes,
@@ -2528,6 +2531,7 @@ class SmartBrushFlow(_PluginBase):
         torrents = eligible_torrents
 
         selection_limit = None
+        selection_plan = None
         if task.smart_selection_enabled or task.smart_enabled:
             ratio_current = (ratio_status or {}).get("current")
             ratio_target = (ratio_status or {}).get("target") or task.site_ratio_target or 2.0
@@ -2548,20 +2552,21 @@ class SmartBrushFlow(_PluginBase):
                     ratio_current,
                     ratio_target,
                 )
-            learning_state = self._get_task_data(task.id, "learning_state") or {}
-            learned_by_candidate: Dict[str, dict] = {}
-            learned_median = 0.0
-            for candidate in torrents:
-                candidate_key = str(
-                    getattr(candidate, "enclosure", "")
-                    or getattr(candidate, "page_url", "")
-                    or getattr(candidate, "title", "")
-                    or (candidate.get("title") if isinstance(candidate, dict) else "")
-                )
-                learned = predict_yield(learning_state, candidate)
-                learned_by_candidate[candidate_key] = learned
-                learned_median = float(learned.get("median") or learned_median)
-            learning_info = learning_summary(learning_state)
+            now = time.time()
+            history = observe_candidates(self._get_task_data(task.id, "selection_history"), torrents, now=now)
+            self._save_task_data(task.id, "selection_history", history)
+            feedback = update_feedback(self._get_task_data(task.id, "selection_feedback"), torrent_tasks,
+                                       self._get_task_data(task.id, "learning_state"), now=now)
+            self._save_task_data(task.id, "selection_feedback", feedback)
+            learning_info = feedback_summary(feedback, now=now)
+            selection_plan = evaluate_opportunities(
+                torrents, history, feedback, torrent_tasks, now=now, min_score=selection_min_score,
+                max_count=selection_limit, occupancy_ratio=occupancy_ratio, profile=task.smart_profile,
+                task_capacity_bytes=capacity_limit, min_seed_hours=float(task.min_seed_time or 0),
+                download_limit_kbps=float(task.maxdlspeed or 0), torrent_limit_kbps=float(task.dl_speed or 0),
+                require_free=bool(task.freeleech),
+            )
+            selection_limit = selection_plan["context"]["max_add"]
             report["smart_selection_policy"] = {
                 "current_ratio": ratio_current,
                 "target_ratio": ratio_target,
@@ -2574,88 +2579,37 @@ class SmartBrushFlow(_PluginBase):
                 "occupancy_percent": round(occupancy_ratio * 100, 2),
                 "learning_confidence": learning_info["confidence"],
                 "learning_samples": learning_info["sample_count"],
+                "learning_unit": "distinct_torrents_24h",
+                "download_context": selection_plan["context"],
+                "feedback": learning_info,
             }
             report["smart_selection_input_count"] = len(torrents)
-            ranked_candidates = rank_selection_candidates(
-                torrents,
-                min_score=selection_min_score,
-                # 评分阶段保留完整候选池，下载阶段再按上限停止，
-                # 这样前面的候选被动态条件拦截时可以继续补位。
-                max_count=max(selection_limit, len(torrents), 1),
-                share_ratio_gap=ratio_gap,
-                share_ratio_target=ratio_target,
-                occupancy_ratio=occupancy_ratio,
-                profile=task.smart_profile,
-                learning=learned_by_candidate,
-                learning_confidence=learning_info["confidence"],
-                learned_median_yield=learned_median,
-                task_capacity_bytes=capacity_limit,
-            )
-            report["smart_selection_count"] = len(ranked_candidates)
-            if torrents and not ranked_candidates:
-                report["reason_counts"]["低于智能评分阈值"] += len(torrents)
-            report["smart_selection_scores"] = [
-                {
-                    "title": getattr(item.candidate, "title", None)
-                    or (item.candidate.get("title") if isinstance(item.candidate, dict) else ""),
-                    "score": item.decision.score,
-                    "reasons": list(item.decision.reason_codes),
-                }
-                for item in ranked_candidates
-            ]
-            selected_keys = {id(item.candidate) for item in ranked_candidates}
-            report["smart_selection_explanations"] = []
-            for candidate in torrents:
-                candidate_key = str(
-                    getattr(candidate, "enclosure", "")
-                    or getattr(candidate, "page_url", "")
-                    or getattr(candidate, "title", "")
-                    or (candidate.get("title") if isinstance(candidate, dict) else "")
-                )
-                learned = learned_by_candidate.get(candidate_key) or {}
-                decision = candidate_score(
-                    candidate,
-                    occupancy_ratio=occupancy_ratio,
-                    profile=task.smart_profile,
-                    normal_threshold=selection_min_score,
-                    learned_yield_score=learned.get("score"),
-                    learned_expected_yield=learned.get("expected"),
-                    learned_median_yield=learned_median,
-                    learning_confidence=min(learning_info["confidence"], float(learned.get("confidence") or 0)),
-                    task_capacity_bytes=capacity_limit,
-                )
-                accepted = id(candidate) in selected_keys and decision.score >= selection_min_score
-                reasons = list(decision.reason_codes)
-                if decision.score < selection_min_score:
-                    reasons.append("below_selection_threshold")
-                report["smart_selection_explanations"].append(
-                    {
-                        "title": getattr(candidate, "title", "") or candidate_key,
-                        "selected": accepted,
-                        "score": decision.score,
-                        "reasons": reasons,
-                        "contributions": dict(decision.contributions),
-                        "confidence": decision.confidence,
-                    }
-                )
-            self._append_decision_audit(
-                task.id,
-                {
-                    "at": time.time(),
-                    "kind": "selection",
-                    "policy": dict(report["smart_selection_policy"]),
-                    "decisions": report["smart_selection_explanations"][:50],
-                },
-            )
-            torrents = [item.candidate for item in ranked_candidates]
+            report["smart_selection_count"] = len(selection_plan["ranked"])
+            if selection_plan["context"]["reason"]:
+                message = "现有下载多数异常，先处理下载健康后再新增" if selection_limit == 0 else "现有下载异常，本轮最多新增1个"
+                report["reason_counts"][message] += 1
+            if torrents and not selection_plan["ranked"]:
+                report["reason_counts"]["没有足够可信的上传机会"] += len(torrents)
+            torrents = [row["candidate"] for row in selection_plan["ranked"]]
         else:
             torrents.sort(key=lambda item: item.pubdate or "", reverse=True)
         seeding_size = self.__calculate_seeding_torrents_size(torrent_tasks)
+        decision_by_key = {row["key"]: row for row in selection_plan["ranked"]} if selection_plan else {}
+        exploration_added = False
         for torrent in torrents:
+            if selection_limit is not None and report["added_count"] >= selection_limit:
+                break
+            decision = decision_by_key.get(candidate_key(torrent))
+            if decision and decision["exploratory"] and exploration_added:
+                decision.update(status="waiting")
+                decision["reasons"].append("exploration_limit")
+                continue
             passed, reason = self.__evaluate_pre_conditions_for_brush(include_network_conditions=False)
             if not passed:
                 report["reason_counts"][reason] += 1
                 report["result"] = "precondition_blocked"
+                if decision:
+                    decision.update(status="blocked", execution_reason=reason)
                 break
             passed, reason = self.__evaluate_size_condition_for_brush(
                 seeding_size,
@@ -2664,16 +2618,30 @@ class SmartBrushFlow(_PluginBase):
             )
             if not passed:
                 report["reason_counts"][reason] += 1
+                if decision:
+                    decision.update(status="blocked", execution_reason=reason)
                 continue
             passed, reason = self.__evaluate_conditions_for_brush(torrent, all_torrent_tasks)
             if not passed:
                 report["reason_counts"][reason] += 1
+                if decision:
+                    decision.update(status="blocked", execution_reason=reason)
                 continue
             hash_string = self.__download(torrent)
             if not hash_string:
                 report["reason_counts"]["下载器添加失败"] += 1
+                if decision:
+                    decision.update(status="add_failed", execution_reason="下载器未确认添加成功")
                 continue
             torrent_task = self._torrent_to_task_record(torrent, site, task)
+            if decision:
+                decision.update(selected=True, status="added")
+                exploration_added |= decision["exploratory"]
+                torrent_task["selection_context"] = {
+                    "at": torrent_task["time"], "baseline_uploaded": 0, "score": decision["score"],
+                    "reasons": decision["reasons"], "eta_hours": decision["eta_hours"],
+                    "predicted_yield_24h": decision["learning"]["expected"] if decision["confidence"] > 0 else None,
+                }
             torrent_tasks[hash_string] = torrent_task
             all_torrent_tasks[hash_string] = torrent_task
             seeding_size += torrent.size
@@ -2694,8 +2662,19 @@ class SmartBrushFlow(_PluginBase):
             self.__send_add_message(torrent)
             if selection_limit is not None and report["added_count"] >= selection_limit:
                 break
+        if selection_plan:
+            for row in selection_plan["evaluated"]:
+                if row["status"] == "planned":
+                    row["status"] = "waiting"
+            report["smart_selection_explanations"] = [public_decision(row) for row in selection_plan["evaluated"]]
+            report["smart_selection_scores"] = [{"title": row["title"], "score": row["score"], "reasons": row["reasons"]}
+                                                for row in report["smart_selection_explanations"]]
+            self._append_decision_audit(task.id, {"at": time.time(), "kind": "selection",
+                "policy": dict(report["smart_selection_policy"]),
+                "decisions": sorted(report["smart_selection_explanations"], key=lambda row: (row["selected"], row["score"]), reverse=True)[:50]})
         report["filtered_count"] = max(report["candidate_count"] - report["added_count"], 0)
-        report["result"] = "completed"
+        if report.get("result") != "precondition_blocked":
+            report["result"] = "waiting_download_health" if selection_plan and selection_limit == 0 else "completed"
 
     @staticmethod
     def _torrent_to_task_record(torrent: TorrentInfo, site: Any, task: BrushTaskConfig) -> dict:
@@ -3051,6 +3030,10 @@ class SmartBrushFlow(_PluginBase):
         history_before = self._current_task_data("smart_history", [])
         snapshot = {self.__get_hash(torrent): self.__get_torrent_info(torrent) for torrent in check_torrents}
         plan = cleanup.sample_and_plan(snapshot=snapshot)
+        self._save_current_task_data("selection_feedback", update_feedback(
+            self._current_task_data("selection_feedback", {}), torrent_tasks,
+            self._current_task_data("learning_state", {}), now=time.time(),
+        ))
         if task.smart_enabled:
             self._update_smart_strategy_state(task, plan["observations"], history_before,
                                               plan["selection"], plan["learning"], torrent_tasks)

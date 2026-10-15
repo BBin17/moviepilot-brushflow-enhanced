@@ -45,6 +45,11 @@ class DownloadHealthService:
                 completed_measurement = torrent_info.get("downloaded")
             completed_bytes = float(completed_measurement or 0)
             is_completed = bool(total_size > 0 and completed_bytes >= total_size)
+            if completed_measurement is not None:
+                if not is_completed:
+                    torrent_task.setdefault("download_seen_incomplete_at", now)
+                elif torrent_task.get("download_seen_incomplete_at"):
+                    torrent_task.setdefault("download_first_completed_at", now)
             current_sample = {
                 "at": now,
                 "downloaded": completed_bytes,

@@ -49,7 +49,7 @@ const decision = computed(() => deletionView(props.summary, props.strategy))
       </aside>
     </div>
 
-    <details class="strategy-details"><summary>策略与学习详情 <span>专业数据，按需展开</span></summary><div class="strategy-facts"><span>引擎 {{ strategy.engine_version || '—' }}</span><span>样本 {{ strategy.learning_sample_count || 0 }}</span><span>学习置信度 {{ ((strategy.learning_confidence || 0)*100).toFixed(0) }}%</span><span>误判率 {{ ((strategy.false_positive_rate || 0)*100).toFixed(1) }}%</span></div><p>近期单位容量上传收益决定保留价值；连续零上传仍需完整观测和连续确认。每个种子在真正删除前重新检查安全数据，先记录审计再执行。</p><p>每次检查逐个处理最多5个合格种子，剩余在后续检查继续；这是下载器请求批次，不是每日数量或GB释放限额。</p></details>
+    <details class="strategy-details"><summary>策略与学习详情 <span>专业数据，按需展开</span></summary><div class="strategy-facts"><span>引擎 {{ strategy.engine_version || '—' }}</span><span>留种小时样本 {{ strategy.learning_sample_count || 0 }}</span><span>留种学习置信度 {{ ((strategy.learning_confidence || 0)*100).toFixed(0) }}%</span><span>误判率 {{ ((strategy.false_positive_rate || 0)*100).toFixed(1) }}%</span><span>选种独立有效样本 {{ summary.selection?.feedback?.sample_count || 0 }}</span></div><p>选种学习按独立种子的完整窗口计算，与留种小时样本分开；可点击“选种”查看实际验收和机会依据。</p><p>近期单位容量上传收益决定保留价值；连续零上传仍需完整观测和连续确认。每个种子在真正删除前重新检查安全数据，先记录审计再执行。</p><p>每次检查逐个处理最多5个合格种子，剩余在后续检查继续；这是下载器请求批次，不是每日数量或GB释放限额。</p></details>
   </section>
 </template>
 
